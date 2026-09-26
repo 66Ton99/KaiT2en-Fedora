@@ -57,6 +57,7 @@ REMOVE_ARGS=(
 	nvme_core.default_ps_max_latency_us
 	apple_gmux.force_igd
 	t2gmux.force_igd
+	amdgpu.aspm
 	i915.enable_guc
 	mem_sleep_default
 	initcall_blacklist
@@ -64,7 +65,7 @@ REMOVE_ARGS=(
 )
 
 ADD_ARGS=(
-	"amdgpu.aspm"
+	"amdgpu.aspm=1"
 	"i915.enable_guc=2"
 	"intel_iommu=on"
 	"iommu=pt"
