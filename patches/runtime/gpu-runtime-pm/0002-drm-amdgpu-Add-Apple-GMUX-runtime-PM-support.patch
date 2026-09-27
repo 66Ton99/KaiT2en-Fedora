@@ -3,8 +3,6 @@ From: Andre Eikmeyer <dev@deq.rocks>
 Date: Sat, 1 Aug 2026 16:27:05 +0200
 Subject: [PATCH] drm/amdgpu: add Apple GMUX runtime PM support
 
-Hello everyone,
-
 The MacBookPro15,1 uses Apple GMUX to control power to the discrete GPU,
 but it does not expose the ATPX or ACPI power-resource interfaces currently
 recognized by amdgpu. The driver therefore leaves runtime PM disabled even
@@ -32,10 +30,10 @@ Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
 ---
  drivers/gpu/drm/amd/amdgpu/amdgpu.h               |  2 +
  drivers/gpu/drm/amd/amdgpu/amdgpu_device.c        | 57 +++++++++++++++++++---
- drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c           | 30 ++++++++-------
+ drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c           | 31 +++++++++-------
  drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c | 12 ++++++
  drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h           |  1 +
- 5 files changed, 85 insertions(+), 17 deletions(-)
+ 5 files changed, 86 insertions(+), 17 deletions(-)
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
 index 7b09410..cc2e2e2 100644
@@ -199,9 +197,8 @@ index 4c0c77e..603ff39 100644
  	}
  
  	adev->in_runpm = true;
--	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX)
-+	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX ||
-+	    adev->pm.rpm_mode == AMDGPU_RUNPM_GMUX)
++	/* GMUX dGPUs drive displays, so hotplug handlers may reopen them. */
+ 	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX)
  		drm_dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
  
  	/*
@@ -217,21 +214,23 @@ index 4c0c77e..603ff39 100644
  		 * PCI core handles it for _PR3.
  		 */
  		amdgpu_device_cache_pci_state(pdev);
-@@ -2922,10 +2927,11 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
+@@ -2922,10 +2927,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
  	if (!pci_device_is_present(adev->pdev))
  		adev->no_hw_access = true;
  
 -	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX) {
 +	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX ||
 +	    adev->pm.rpm_mode == AMDGPU_RUNPM_GMUX) {
- 		drm_dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
+-		drm_dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
++		if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX)
++			drm_dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
  
 -		/* Only need to handle PCI state in the driver for ATPX
 +		/* Only need to handle PCI state in the driver for ATPX and GMUX.
  		 * PCI core handles it for _PR3.
  		 */
  		pci_set_power_state(pdev, PCI_D0);
-@@ -2945,10 +2951,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
+@@ -2945,10 +2952,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
  	}
  	ret = amdgpu_device_resume(drm_dev, false);
  	if (ret) {
