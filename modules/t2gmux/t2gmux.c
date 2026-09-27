@@ -302,6 +302,9 @@ struct apple_gmux_config {
 	char *name;
 };
 
+/* kMux_GPUPowerState in AppleMuxControl2, 3 when the discrete GPU is powered. */
+#define GMUX_PORT_GPU_POWER_STATE	0x3f
+
 #define GMUX_INTERRUPT_ENABLE		0xff
 #define GMUX_INTERRUPT_DISABLE		0x00
 
@@ -715,6 +718,22 @@ static int gmux_switch_ddc(enum vga_switcheroo_client_id id)
  * core voltage, VRAM and PCIe.
  */
 
+static void gmux_dump_power(struct apple_gmux_data *gmux_data,
+			    const char *when, bool warn)
+{
+	u8 power = gmux_read8(gmux_data, GMUX_PORT_DISCRETE_POWER);
+	u8 status = gmux_read8(gmux_data, GMUX_PORT_INTERRUPT_STATUS);
+	u8 enable = gmux_read8(gmux_data, GMUX_PORT_INTERRUPT_ENABLE);
+	u8 gpu = gmux_read8(gmux_data, GMUX_PORT_GPU_POWER_STATE);
+
+	if (warn)
+		pr_warn("%s: power 0x%02x gpu state 0x%02x irq status 0x%02x enable 0x%02x\n",
+			when, power, gpu, status, enable);
+	else
+		pr_debug("%s: power 0x%02x gpu state 0x%02x irq status 0x%02x enable 0x%02x\n",
+			 when, power, gpu, status, enable);
+}
+
 static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 				   enum vga_switcheroo_state state)
 {
@@ -810,6 +829,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			usleep_range(10000, 11000);
 		pr_debug("power down: port 0\n");
 		gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 0);
+		gmux_dump_power(gmux_data, "power down: after port 0", false);
 		if (gmux_data->use_pwrd_power_sequence) {
 			msleep(20);
 			gmux_data->dgpu_off_time = ktime_get();
@@ -822,8 +842,10 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	pr_debug("power: waiting for gmux completion\n");
 	if (gmux_data->gpe >= 0 &&
 	    !wait_for_completion_interruptible_timeout(&gmux_data->powerchange_done,
-						       msecs_to_jiffies(200)))
+						       msecs_to_jiffies(200))) {
 		pr_warn("Timeout waiting for gmux switch to complete\n");
+		gmux_dump_power(gmux_data, "power: timeout", true);
+	}
 	pr_debug("power: gmux switch done\n");
 
 	return 0;
