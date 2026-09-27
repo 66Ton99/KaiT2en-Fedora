@@ -19,6 +19,7 @@
 #include <linux/apple-gmux.h>
 #include <linux/slab.h>
 #include <linux/delay.h>
+#include <linux/ktime.h>
 #include <linux/dmi.h>
 #include <linux/pci.h>
 #include <linux/vga_switcheroo.h>
@@ -85,6 +86,7 @@ struct apple_gmux_data {
 	bool use_pwrd_power_sequence;
 	u32 gpu_bar0;
 	u32 hda_bar0;
+	ktime_t dgpu_off_time;
 };
 
 static struct apple_gmux_data *apple_gmux_data;
@@ -101,6 +103,9 @@ static struct apple_gmux_data *apple_gmux_data;
  * array; the kext stops at the first empty slot, so walk to the root port.
  */
 #define GMUX_DGPU_MAX_BRIDGES 6
+
+/* GPUMinimumOffTime of the AppleMuxControl2 config for these models. */
+#define GMUX_DGPU_MIN_OFF_MS 200
 
 static int gmux_call_pwrd(struct apple_gmux_data *gmux_data, bool power_down)
 {
@@ -720,14 +725,23 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	if (state == VGA_SWITCHEROO_ON) {
 		if (gmux_data->use_pwrd_power_sequence &&
 		    gmux_data->discrete_pdev) {
+			s64 off_ms = ktime_ms_delta(ktime_get(),
+						    gmux_data->dgpu_off_time);
+
+			if (off_ms < GMUX_DGPU_MIN_OFF_MS) {
+				pr_debug("power up: off for %lld ms, waiting\n",
+					 off_ms);
+				msleep(GMUX_DGPU_MIN_OFF_MS - off_ms);
+			}
+
 			pr_debug("power up: port 3\n");
 			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 3);
-			msleep(20);
 
 			pr_debug("power up: PWRD(0)\n");
 			ret = gmux_call_pwrd(gmux_data, false);
 			if (ret)
 				return ret;
+			msleep(20);
 
 			pr_debug("power up: restore state\n");
 			ret = gmux_restore_dgpu_state(gmux_data);
@@ -796,8 +810,10 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			usleep_range(10000, 11000);
 		pr_debug("power down: port 0\n");
 		gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 0);
-		if (gmux_data->use_pwrd_power_sequence)
+		if (gmux_data->use_pwrd_power_sequence) {
 			msleep(20);
+			gmux_data->dgpu_off_time = ktime_get();
+		}
 		pr_debug("Discrete card powered down\n");
 	}
 
