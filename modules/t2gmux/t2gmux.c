@@ -227,6 +227,7 @@ static int gmux_restore_dgpu_state(struct apple_gmux_data *gmux_data)
 
 	for (i = count - 1; i >= 0; i--)
 		pci_restore_state(bridges[i]);
+	pr_debug("power up: %d bridges restored\n", count);
 
 	for (ms = 0; ms < 1000; ms++) {
 		pci_read_config_dword(gmux_data->discrete_pdev, PCI_VENDOR_ID,
@@ -241,6 +242,7 @@ static int gmux_restore_dgpu_state(struct apple_gmux_data *gmux_data)
 		return -ETIMEDOUT;
 	}
 
+	pr_debug("power up: config space after %d polls\n", ms);
 	ret = gmux_restore_function(gmux_data->discrete_pdev,
 				    gmux_data->gpu_bar0);
 	if (ret)
@@ -718,13 +720,16 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	if (state == VGA_SWITCHEROO_ON) {
 		if (gmux_data->use_pwrd_power_sequence &&
 		    gmux_data->discrete_pdev) {
+			pr_debug("power up: port 3\n");
 			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 3);
 			msleep(20);
 
+			pr_debug("power up: PWRD(0)\n");
 			ret = gmux_call_pwrd(gmux_data, false);
 			if (ret)
 				return ret;
 
+			pr_debug("power up: restore state\n");
 			ret = gmux_restore_dgpu_state(gmux_data);
 			if (ret)
 				return ret;
@@ -733,10 +738,13 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			u16 vendor;
 			int i;
 
+			pr_debug("power up: port 2\n");
 			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 2);
 			msleep(100);
+			pr_debug("power up: port 3\n");
 			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 3);
 
+			pr_debug("power up: PWG1\n");
 			ret = gmux_call_pwg(gmux_data, "PWG1");
 			if (ret)
 				return ret;
@@ -754,31 +762,39 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 				return -ETIMEDOUT;
 			}
 
+			pr_debug("power up: config space after %d polls\n", i);
+			pr_debug("power up: PWG3\n");
 			ret = gmux_call_pwg(gmux_data, "PWG3");
 			if (ret)
 				return ret;
 
 		} else {
+			pr_debug("power up: port 1\n");
 			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 1);
+			pr_debug("power up: port 3\n");
 			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 3);
 		}
 		pr_debug("Discrete card powered up\n");
 	} else {
 		if (gmux_data->use_pwrd_power_sequence &&
 		    gmux_data->discrete_pdev) {
+			pr_debug("power down: save state\n");
 			ret = gmux_save_dgpu_state(gmux_data);
 			if (ret)
 				return ret;
 
+			pr_debug("power down: PWRD(1)\n");
 			ret = gmux_call_pwrd(gmux_data, true);
 			if (ret)
 				return ret;
 		}
 
+		pr_debug("power down: port 1\n");
 		gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 1);
 		if (gmux_data->use_pwg_power_sequence ||
 		    gmux_data->use_pwrd_power_sequence)
 			usleep_range(10000, 11000);
+		pr_debug("power down: port 0\n");
 		gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 0);
 		if (gmux_data->use_pwrd_power_sequence)
 			msleep(20);
@@ -787,10 +803,12 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 
 	gmux_data->power_state = state;
 
+	pr_debug("power: waiting for gmux completion\n");
 	if (gmux_data->gpe >= 0 &&
 	    !wait_for_completion_interruptible_timeout(&gmux_data->powerchange_done,
 						       msecs_to_jiffies(200)))
 		pr_warn("Timeout waiting for gmux switch to complete\n");
+	pr_debug("power: gmux switch done\n");
 
 	return 0;
 }
