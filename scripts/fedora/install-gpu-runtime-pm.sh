@@ -30,7 +30,7 @@ for argument in "$@"; do
 done
 MODULE_DIR="/usr/lib/modules/$KVER/updates/kait2en-gpu-runtime-pm"
 MODPROBE_CONF="/usr/lib/modprobe.d/kait2en-gpu-runtime-pm.conf"
-DRACUT_CONF="/etc/dracut.conf.d/90-kait2en-gpu-runtime-pm.conf"
+LEGACY_DRACUT_CONF="/etc/dracut.conf.d/90-kait2en-gpu-runtime-pm.conf"
 BUILD_ID_FILE="$MODULE_DIR/.build-id"
 PATCH_DIR="$REPO_ROOT/patches/runtime/gpu-runtime-pm"
 PATCH_SERIES="$PATCH_DIR/series"
@@ -53,7 +53,7 @@ remove_modules() {
 		rm -rf "$MODULE_DIR"
 	fi
 	rm -f "$MODPROBE_CONF"
-	rm -f "$DRACUT_CONF"
+	rm -f "$LEGACY_DRACUT_CONF"
 	depmod -a "$KVER"
 	if [[ -d "/usr/lib/modules/$KVER" ]]; then
 		dracut --force "/boot/initramfs-$KVER.img" "$KVER"
@@ -114,7 +114,8 @@ build_id=$(
 		sha256sum | awk '{ print $1 }'
 )
 if [[ -f "$MODULE_DIR/amdgpu.ko.xz" &&
-	-f "$MODULE_DIR/snd-hda-intel.ko.xz" &&
+	! -e "$MODULE_DIR/snd-hda-intel.ko.xz" &&
+	! -e "$LEGACY_DRACUT_CONF" &&
 	-r "$BUILD_ID_FILE" &&
 	$(<"$BUILD_ID_FILE") == "$build_id" ]]; then
 	info "GPU runtime PM modules are current for $KVER"
@@ -211,33 +212,24 @@ info "building AMDGPU for $KVER"
 make -j "$(nproc)" -C "$build_tree" \
 	M="$kernel_tree/drivers/gpu/drm/amd/amdgpu" modules
 
-info "building Intel HDA for $KVER"
-make -j "$(nproc)" -C "$build_tree" \
-	M="$kernel_tree/sound/hda/controllers" modules
-
 amdgpu_module="$kernel_tree/drivers/gpu/drm/amd/amdgpu/amdgpu.ko"
-hda_module="$kernel_tree/sound/hda/controllers/snd-hda-intel.ko"
-[[ -f "$amdgpu_module" && -f "$hda_module" ]] ||
-	fail "one or more expected modules were not built"
+[[ -f "$amdgpu_module" ]] || fail "AMDGPU module was not built"
 
 staging="$workdir/modules"
 install -Dpm 0644 "$amdgpu_module" "$staging/amdgpu.ko"
-install -Dpm 0644 "$hda_module" "$staging/snd-hda-intel.ko"
-strip --strip-debug "$staging/amdgpu.ko" "$staging/snd-hda-intel.ko" ||
+strip --strip-debug "$staging/amdgpu.ko" ||
 	warn "could not strip debug info; installing larger, unstripped modules"
-xz --check=crc32 --lzma2=dict=1MiB -f \
-	"$staging/amdgpu.ko" "$staging/snd-hda-intel.ko"
+xz --check=crc32 --lzma2=dict=1MiB -f "$staging/amdgpu.ko"
 
 info "installing GPU runtime PM modules for $KVER"
 install -d -m 0755 "$MODULE_DIR"
-install -m 0644 "$staging/amdgpu.ko.xz" "$staging/snd-hda-intel.ko.xz" "$MODULE_DIR/"
+install -m 0644 "$staging/amdgpu.ko.xz" "$MODULE_DIR/"
+rm -f "$MODULE_DIR/snd-hda-intel.ko.xz" "$LEGACY_DRACUT_CONF"
 cat >"$workdir/kait2en-gpu-runtime-pm.conf" <<'EOF'
 # GMUX must provide the power callbacks before AMDGPU probes.
 softdep amdgpu pre: t2gmux
 EOF
 install -Dpm 0644 "$workdir/kait2en-gpu-runtime-pm.conf" "$MODPROBE_CONF"
-printf 'omit_drivers+=" snd_hda_intel "\n' >"$workdir/90-kait2en-gpu-runtime-pm.conf"
-install -Dpm 0644 "$workdir/90-kait2en-gpu-runtime-pm.conf" "$DRACUT_CONF"
 depmod -a "$KVER"
 if ((DEFER_INITRAMFS == 0)); then
 	dracut --force "/boot/initramfs-$KVER.img" "$KVER"

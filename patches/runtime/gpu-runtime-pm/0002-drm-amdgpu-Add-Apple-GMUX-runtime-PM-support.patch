@@ -15,39 +15,38 @@ to sequence GPU power. A runtime-suspended GMUX GPU can remain powered off
 across system sleep, following the smart-suspend handling already used by
 BOCO devices.
 
-On muxed systems the inactive GPU cannot reach the panel AUX channel, so
-its internal eDP link probe fails and a fail-safe sink is retained. That
-connector then reports as connected and keeps the GPU runtime busy for
-good. Skip the probe on a GMUX system whose GPU is not the boot display
-device; the connector remains available when the discrete GPU is.
+On muxed systems the inactive GPU cannot reach the panel AUX channel. Tell
+Display Core that eDP is disconnected before dc_create(), then omit that
+link from DRM connector and encoder registration when the GMUX GPU is not
+the boot display device. This avoids retaining a fail-safe sink that reports
+as connected and keeps the GPU runtime busy.
 
 This allows the discrete GPU to enter D3cold while the integrated GPU is
 primary and allows PRIME workloads and external displays to wake it on
 demand.
 
-This was tested on both the 2018 and 2019 MacBookPro15,1 revisions together
-with the apple-gmux and HDA changes in this series.
-
-Thank you for your time and consideration.
+This was tested on MacBookPro15,1, 16,1, 16,4 together
+with the corresponding apple-gmux power-sequencing support.
 
 Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
 ---
- drivers/gpu/drm/amd/amdgpu/amdgpu.h               |  1 +
- drivers/gpu/drm/amd/amdgpu/amdgpu_device.c        | 44 +++++++++++++++++----
+ drivers/gpu/drm/amd/amdgpu/amdgpu.h               |  2 +
+ drivers/gpu/drm/amd/amdgpu/amdgpu_device.c        | 57 +++++++++++++++++++---
  drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c           | 30 ++++++++-------
- drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c |  9 +++++
+ drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c | 12 ++++++
  drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h           |  1 +
- 5 files changed, 68 insertions(+), 17 deletions(-)
+ 5 files changed, 85 insertions(+), 17 deletions(-)
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
 index 7b09410..cc2e2e2 100644
 --- a/drivers/gpu/drm/amd/amdgpu/amdgpu.h
 +++ b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
-@@ -1402,6 +1402,7 @@ int amdgpu_device_mode1_reset(struct amdgpu_device *adev);
+@@ -1402,6 +1402,8 @@ int amdgpu_device_mode1_reset(struct amdgpu_device *adev);
  int amdgpu_device_link_reset(struct amdgpu_device *adev);
  bool amdgpu_device_supports_atpx(struct amdgpu_device *adev);
  bool amdgpu_device_supports_px(struct amdgpu_device *adev);
 +bool amdgpu_device_supports_gmux(struct amdgpu_device *adev);
++bool amdgpu_device_has_gmux_edp(struct amdgpu_device *adev);
  bool amdgpu_device_supports_boco(struct amdgpu_device *adev);
  bool amdgpu_device_supports_smart_shift(struct amdgpu_device *adev);
  int amdgpu_device_supports_baco(struct amdgpu_device *adev);
@@ -63,7 +62,7 @@ index e5f26e5..2175743 100644
  #include <linux/pci-p2pdma.h>
  #include <linux/apple-gmux.h>
  #include <linux/nospec.h>
-@@ -568,6 +569,32 @@ bool amdgpu_device_supports_px(struct amdgpu_device *adev)
+@@ -568,6 +569,45 @@ bool amdgpu_device_supports_px(struct amdgpu_device *adev)
  	return false;
  }
 
@@ -71,6 +70,11 @@ index e5f26e5..2175743 100644
 +	{
 +		.matches = {
 +			DMI_MATCH(DMI_PRODUCT_NAME, "MacBookPro15,1"),
++		},
++	},
++	{
++		.matches = {
++			DMI_MATCH(DMI_PRODUCT_NAME, "MacBookPro15,3"),
 +		},
 +	},
 +	{
@@ -93,10 +97,18 @@ index e5f26e5..2175743 100644
 +	       apple_gmux_detect(NULL, NULL);
 +}
 +
++bool amdgpu_device_has_gmux_edp(struct amdgpu_device *adev)
++{
++	return amdgpu_device_supports_gmux(adev) &&
++	       (dmi_match(DMI_PRODUCT_NAME, "MacBookPro15,3") ||
++		dmi_match(DMI_PRODUCT_NAME, "MacBookPro16,1") ||
++		dmi_match(DMI_PRODUCT_NAME, "MacBookPro16,4"));
++}
++
  /**
   * amdgpu_device_supports_boco - Is the device a dGPU with ACPI power resources
   *
-@@ -631,6 +648,9 @@ void amdgpu_device_detect_runtime_pm_mode(struct amdgpu_device *adev)
+@@ -631,6 +661,9 @@ void amdgpu_device_detect_runtime_pm_mode(struct amdgpu_device *adev)
  			/* enable PX as runtime mode */
  			adev->pm.rpm_mode = AMDGPU_RUNPM_PX;
  			dev_info(adev->dev, "Using ATPX for runtime pm\n");
@@ -106,7 +118,7 @@ index e5f26e5..2175743 100644
  		} else if (amdgpu_device_supports_boco(adev)) {
  			/* enable boco as runtime mode */
  			adev->pm.rpm_mode = AMDGPU_RUNPM_BOCO;
-@@ -3711,7 +3731,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
+@@ -3711,7 +3744,7 @@ int amdgpu_device_init(struct amdgpu_device *adev,
  {
  	struct pci_dev *pdev = adev->pdev;
  	int r, i;
@@ -115,7 +127,7 @@ index e5f26e5..2175743 100644
  	u32 max_MBps;
  	int tmp;
  
-@@ -4214,10 +4234,11 @@ fence_driver_init:
+@@ -4214,10 +4247,11 @@ fence_driver_init:
  		vga_client_register(adev->pdev, amdgpu_device_vga_set_decode);
  
  	px = amdgpu_device_supports_px(adev);
@@ -129,7 +141,7 @@ index e5f26e5..2175743 100644
 -	if (px)
 +	if (px || gmux)
  		vga_switcheroo_init_domain_pm_ops(adev->dev, &adev->vga_pm_domain);
-@@ -4344,7 +4365,7 @@ void amdgpu_device_fini_hw(struct amdgpu_device *adev)
+@@ -4344,7 +4378,7 @@ void amdgpu_device_fini_hw(struct amdgpu_device *adev)
  void amdgpu_device_fini_sw(struct amdgpu_device *adev)
  {
  	int i, idx;
@@ -138,7 +150,7 @@ index e5f26e5..2175743 100644
  
  	amdgpu_device_ip_fini(adev);
  	amdgpu_fence_driver_sw_fini(adev);
-@@ -4375,11 +4396,12 @@ void amdgpu_device_fini_sw(struct amdgpu_device *adev)
+@@ -4375,11 +4409,12 @@ void amdgpu_device_fini_sw(struct amdgpu_device *adev)
  	adev->xcp_mgr = NULL;
  
  	px = amdgpu_device_supports_px(adev);
@@ -245,21 +257,31 @@ diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm
  #include <linux/pci.h>
  #include <linux/power_supply.h>
  #include <linux/firmware.h>
-@@ -5718,6 +5719,14 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
- 		if (dm->hpd_rx_offload_wq)
- 			dm->hpd_rx_offload_wq[aconnector->base.index].aconnector =
- 				aconnector;
+@@ -2009,6 +2010,10 @@ static int amdgpu_dm_init(struct amdgpu_device *adev)
+ 	else
+ 		init_data.bb_from_dmub = NULL;
+ 
++	if (amdgpu_device_has_gmux_edp(adev) &&
++	    adev->pdev != vga_default_device())
++		init_data.flags.edp_not_connected = true;
 +
+ 	/* Display Core create. */
+ 	adev->dm.dc = dc_create(&init_data);
+ 
+@@ -5675,6 +5680,13 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
+ 		struct dc_link *link = NULL;
+ 
+ 		link = dc_get_link_at_index(dm->dc, i);
 +		if (link->connector_signal == SIGNAL_TYPE_EDP &&
-+		    amdgpu_device_supports_gmux(adev) &&
++		    amdgpu_device_has_gmux_edp(adev) &&
 +		    adev->pdev != vga_default_device()) {
-+			drm_info(adev_to_drm(adev), "Skipping inactive GMUX eDP connector %s\n",
-+				 aconnector->base.name);
++			drm_info(adev_to_drm(adev), "Skipping inactive GMUX eDP link %d\n",
++				 i);
 +			continue;
 +		}
-
- 		if (!dc_link_detect_connection_type(link, &new_connection_type))
- 			drm_err(adev_to_drm(adev), "KMS: Failed to detect connector\n");
+ 
+ 		if (link->connector_signal == SIGNAL_TYPE_VIRTUAL) {
+ 			struct amdgpu_dm_wb_connector *wbcon = kzalloc_obj(*wbcon);
 diff --git a/drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h b/drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h
 index aa3f427..d76968f 100644
 --- a/drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h
