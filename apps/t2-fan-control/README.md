@@ -76,7 +76,7 @@ The curve has a start point, an end point and one bend handle (the hollow ring) 
 
 Fan percentages are relative to each fan's reported minimum and maximum RPM. Therefore `0%` means the hardware minimum RPM, not a stopped fan.
 
-Fan speed follows the curve with a ramp of at most +8% or -4% per two-second tick. A new ramp starts once the curve target differs by 3% or more, so a steady temperature causes no fan writes. Exceeding the curve's end point, the system target or the any-sensor protection jumps to 100% immediately.
+Fan speed follows the curve in 1% steps: every 100 ms upward (10%/s) and every 500 ms downward (2%/s). Temperatures are still read every two seconds; the short wakeups only happen while a ramp runs. A new ramp starts once the curve target differs by 3% or more, so a steady temperature causes no fan writes. Exceeding the curve's end point, the system target or the any-sensor protection jumps to 100% immediately.
 
 ### Monitoring values
 

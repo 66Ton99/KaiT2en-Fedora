@@ -383,7 +383,7 @@ fn daemon_main() -> error::Result<()> {
         }
 
         runtime.tick();
-        match connections_rx.recv_timeout(Duration::from_secs(2)) {
+        match connections_rx.recv_timeout(runtime.controller.next_wakeup()) {
             Ok(Ok((stream, _addr))) => {
                 let request = ipc::read_request(&stream);
                 match request {
@@ -486,6 +486,14 @@ impl DaemonRuntime {
                     self.status = format!("Fan control failed: {error}");
                 }
             }
+        }
+        match self.controller.ramp(&mut self.fans) {
+            Ok(true) => {
+                self.snapshot.target_percent = self.controller.applied_percent();
+                self.snapshot.target_rpm_per_fan = self.controller.target_rpm_per_fan(&self.fans);
+            }
+            Ok(false) => {}
+            Err(error) => self.status = format!("Fan control failed: {error}"),
         }
     }
 
