@@ -59,6 +59,10 @@ t2journal --allboots --source t2
 t2journal -b --output jsonl > merged.jsonl
 ```
 
+`t2journal refresh --sysdiagnose` additionally keeps a copy of the downloaded
+sysdiagnose archive in the current directory, e.g. to extract panic logs from
+it yourself.
+
 Run `t2journal --help` for all filtering and refresh options.
 
 ## T2 Power Tune

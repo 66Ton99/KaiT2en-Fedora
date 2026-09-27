@@ -75,6 +75,10 @@ struct Refresh {
     #[arg(long)]
     archive: Option<PathBuf>,
 
+    /// Keep a copy of the downloaded sysdiagnose archive in the current directory
+    #[arg(long, conflicts_with = "archive")]
+    sysdiagnose: bool,
+
     /// T2 CDC-NCM interface; detected automatically when omitted
     #[arg(long)]
     interface: Option<String>,
@@ -147,6 +151,17 @@ fn refresh(args: &Refresh, state_file: PathBuf) -> Result<()> {
 
     eprintln!("Extracting {}", archive_path.display());
     let extracted = archive::extract(&archive_path, &work.path().join("extracted"))?;
+    if args.sysdiagnose {
+        let name = std::fs::read_dir(&extracted.root)?
+            .filter_map(|entry| entry.ok())
+            .find(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .unwrap_or_else(|| "sysdiagnose".into());
+        let copy = std::env::current_dir()?.join(format!("{name}.tar.gz"));
+        std::fs::copy(&archive_path, &copy)
+            .with_context(|| format!("copy sysdiagnose to {}", copy.display()))?;
+        eprintln!("Saved {}", copy.display());
+    }
     eprintln!("Parsing {}", extracted.logarchive.display());
     let mut parsing = progress::Bar::new("Unified log parsing");
     let mut records = unified::parse(&extracted.logarchive, |current, total| {

@@ -30,10 +30,14 @@ t2journal -b --grep 'suspend|watchdog'
 t2journal -b --grep=smc
 t2journal -b --output jsonl > merged.jsonl
 t2journal -b > t2journal.log
+t2journal refresh --sysdiagnose
 ```
 
 If no T2 log snapshot exists, a query performs the initial refresh
 automatically.
+
+`refresh --sysdiagnose` additionally keeps a copy of the downloaded
+sysdiagnose archive in the current directory, e.g. to extract panic logs.
 
 Only records are written to stdout. Progress and errors are written to stderr,
 so redirection and pipelines behave normally. Boot indices select the Linux
