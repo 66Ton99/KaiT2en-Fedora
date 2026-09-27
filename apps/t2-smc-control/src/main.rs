@@ -177,6 +177,7 @@ fn sensor_label(key: &str) -> String {
         "TGDD" => "GPU AMD Die digital".into(),
         "TGDF" => "GPU Die analog".into(),
         "TGVP" => "GPU VR".into(),
+        "TF0S" => "Fan 0 synthetic".into(),
         "TH0F" => "SSD Heatsink".into(),
         "TH0X" => "SSD Controller".into(),
         "TH0a" => "SSD NAND".into(),
@@ -473,7 +474,11 @@ fn scaled_value(value: i64, unit: &str) -> String {
 
 fn power_label(key: &str) -> String {
     match key {
+        // T2 accumulator channels do not carry descriptions in libSMC. Keep
+        // unverified functions explicit and neutral instead of guessing names.
+        "PA8C" => "A8 load-side rail".into(),
         "PAPC" => "WiFi".into(),
+        "PBLR" => "BL rail (12 V)".into(),
         "PCPT" => "CPU package total (PECI)".into(),
         "PCTR" | "PCPL" => "CPU Total".into(),
         "PC0C" => "CPU Core 1".into(),
@@ -501,24 +506,33 @@ fn power_label(key: &str) -> String {
         "PC1R" => "CPU Rail".into(),
         "PC5R" => "CPU S0 Rail".into(),
         "PCSC" => "CPU VCCSA (PCSC)".into(),
+        "PCIC" => "CPU I/O load-side rail".into(),
+        "PCTC" => "CT load-side rail".into(),
         "PD0R" => "DC-In MLB S0 rail".into(),
         "PD5R" => "DC-In MLB S5 rail".into(),
         "PDMR" => "DC-In MLB total".into(),
         "PDTR" => "DC-In total".into(),
+        "PF3C" => "F3 load-side rail".into(),
         "PGTR" => "GPU Total".into(),
         "PG0R" => "GPU 0 rail".into(),
         "PG0C" => "GPU".into(),
         "PG1C" => "External GPU 1.8 V".into(),
         "PG2C" => "External GPU 1.05 V".into(),
         "PG3C" => "External GPU 1.35 V".into(),
+        "PG4C" => "External GPU rail 4".into(),
+        "PH0C" => "SSD 3.3 V load-side rail 0".into(),
         "PH0R" => "Drive 0".into(),
+        "PH1C" => "SSD 3.3 V load-side rail 1".into(),
         "PH1R" => "Drive 1".into(),
         "PHPC" => "Heatpipe".into(),
         "PLDC" => "LCD panel".into(),
         "PM0C" => "Memory average".into(),
         "PM0R" => "Memory Rail".into(),
+        "PMCC" => "MC load-side rail".into(),
         "PN0C" => "MCH".into(),
         "PN1R" => "PCH Rail".into(),
+        "POLR" => "Left Thunderbolt/I/O rail".into(),
+        "PORR" => "Right Thunderbolt/I/O rail".into(),
         "PH02" => "Main 3.3V Rail".into(),
         "PH05" => "Main 5V Rail".into(),
         "Pp0R" => "12V Rail".into(),
@@ -526,6 +540,10 @@ fn power_label(key: &str) -> String {
         "PO0R" => "Misc. Rail".into(),
         "PBLC" | "PB0R" => "Battery Rail".into(),
         "PM1C" => "DDR".into(),
+        "PS1C" => "S1 load-side rail".into(),
+        "PSLC" => "SL rail (3.3 V)".into(),
+        "PULC" => "Left USB-C load-side rail".into(),
+        "PURC" => "Right USB-C load-side rail".into(),
         "PO5R" => "Other 5 V high-side".into(),
         "PP0R" => "PBus".into(),
         "PPBR" => "PBus battery discharge".into(),
@@ -1283,6 +1301,21 @@ mod tests {
         assert_eq!(power_label("PZ0G"), "Zone 0 average");
         assert_eq!(power_label("PDTR"), "DC-In total");
         assert_eq!(power_label("PSTR"), "System total (1 s delayed)");
+        assert_eq!(power_label("PA8C"), "A8 load-side rail");
+        assert_eq!(power_label("PBLR"), "BL rail (12 V)");
+        assert_eq!(power_label("PCIC"), "CPU I/O load-side rail");
+        assert_eq!(power_label("PCTC"), "CT load-side rail");
+        assert_eq!(power_label("PF3C"), "F3 load-side rail");
+        assert_eq!(power_label("PG4C"), "External GPU rail 4");
+        assert_eq!(power_label("PH0C"), "SSD 3.3 V load-side rail 0");
+        assert_eq!(power_label("PH1C"), "SSD 3.3 V load-side rail 1");
+        assert_eq!(power_label("PMCC"), "MC load-side rail");
+        assert_eq!(power_label("POLR"), "Left Thunderbolt/I/O rail");
+        assert_eq!(power_label("PORR"), "Right Thunderbolt/I/O rail");
+        assert_eq!(power_label("PS1C"), "S1 load-side rail");
+        assert_eq!(power_label("PSLC"), "SL rail (3.3 V)");
+        assert_eq!(power_label("PULC"), "Left USB-C load-side rail");
+        assert_eq!(power_label("PURC"), "Right USB-C load-side rail");
         assert_eq!(power_label("PXYZ"), "unknown (PXYZ)");
     }
 
@@ -1298,7 +1331,7 @@ mod tests {
         assert_eq!(sensor_label("TH1b"), "Drive 1 Raw B");
         assert_eq!(sensor_label("Th1H"), "Right Fin Stack");
         assert_eq!(sensor_label("Th2H"), "Left Fin Stack");
-        assert_eq!(sensor_label("TF0S"), "unknown (TF0S)");
+        assert_eq!(sensor_label("TF0S"), "Fan 0 synthetic");
     }
 
     #[test]

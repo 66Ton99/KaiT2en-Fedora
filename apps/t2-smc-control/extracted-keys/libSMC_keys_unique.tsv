@@ -1,0 +1,1116 @@
+key	type	description	platforms
+B0AC	ui16	Battery Actual current. (mA) (B0AC)	D1,J11,J13,J15,J30,J31,K21,K78,K90I,K91F,K92
+B0AC	si16	Battery Actual current. (A) (B0AC)	D2,J41,J43,J44,J45,J45G,J52,J53,J92
+B0AV	ui16	Battery Actual Voltage. (mV) (B0AV)	D1,J11,J13,J15,J30,J31,K21,K78,K90I,K91F,K92
+B0AV	ui16	Battery Actual Voltage. (V) (B0AV)	D2,J41,J43,J44,J45,J45G,J52,J53,J92
+B0FC	ui16	Battery full charge capacity. (mAh) (B0FC)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78,K90I,K91F,K92
+B0RM	ui16	Battery remain capacity. (mAh) (B0RM)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78,K90I,K91F,K92
+CHBI	ui16	Battery charge current. (mAh) (CHBI)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78,K90I,K91F,K92
+F0Ac	fpe2	Fan0 Actual RPM(F0Ac)	D1,D2,D7,D7I,D8,J11,J13,J15,J16,J16G,J17,J30,J31,J40G,J40I,J40S,J41,J43,J44,J45,J45G,J50I,J50S,J52,J53,J64,J70,J78,J78am,J90,K21,K78,K90I,K91F,K92
+F1Ac	fpe2	Fan1 Actual RPM(F1Ac)	D1,D2,J15,J31,J45,J45G,J53,K90I,K91F,K92
+FRD0	ui16	gasi16TmFastRawData array entry 0 (FRD0)	K92
+FRD1	ui16	gasi16TmFastRawData array entry 1 (FRD1)	K92
+FRD2	ui16	gasi16TmFastRawData array entry 2 (FRD2)	K92
+FRD3	ui16	gasi16TmFastRawData array entry 3 (FRD3)	K92
+I50R	sp5a	5V lowside current (Amps) (I50R)	J64
+IAPC	sp4b	Airport Current (Amps) (IAPC)	D2,J15,J45,J45G,J53
+IAPC	sp5a	Airport Current (Amps) (IAPC)	J11,J13,J41,J43
+IAPC	sp5a	Airport  Current (DEBUG) (Amps) (IAPC)	K92
+IAPC	sp2d	WLAN lowside current (Amps) (IAPC)	J64
+IAPC	sp2d	Airport current.  (Amps) (IAPC)	D1
+IB0R	sp5a	Battery Discharge Current MLB  (Amps) (IB0R)	K21,K78,K92
+IB0R	sp4b	Battery Discharge Current MLB (SPS! force bit 5) (Amps) (IB0R)	K16,K99
+IB0R	sp5a	Battery Discharge Current MLB . (Amps) (IB0R)	K91F
+IB0R	sp5a	Battery Discharge Current MLB (Amps) (IB0R)	K90I
+IBAC	sp78	Battery Current (Amps) (IBAC)	J52,J53
+IBAC	sp78	Battery Current (IBAC)	J92
+IBLC	sp1e	LCD Backlight Current.  (Amps) (IBLC)	J15,J45,J45G,J53
+IBLC	sp5a	Backlight Current (Amps) (IBLC)	J11,J13,J41,J43
+IBLC	sp1e	Backlight Current (Amps) (IBLC)	J44,J52
+IBLC	sp1e	Backlight Current.  (Amps) (IBLC)	D2
+IBLC	sp1e	Backlight Current. (DEBUG) (Amps) (IBLC)	K91F
+IBLC	sp5a	Backlight  Current (DEBUG) (Amps) (IBLC)	K92
+IBLC	sp2d	Backlight current. (Amps) (IBLC)	D1
+IC0C	sp78	CPU Core load-side current (Amps) (IC0C)	J16,J16G,J17,J70,J78,J78am
+IC0C	sp78	CPU Core current. (Amps) (IC0C)	D1,J11,J13,J30,J31
+IC0C	sp87	CPU Package Core current. (Amps) (IC0C)	J15,J45,J45G,J53
+IC0C	sp78	CPU Core Current (Amps) (IC0C)	K21,K78,K92
+IC0C	sp87	CPU Vcore average current. (SPS! force bit 0) (Amps) (IC0C)	J40G,J40I,J40S
+IC0C	sp78	CPU Core low-side current (Amps) (IC0C)	D7,D7I,D8
+IC0C	sp87	CPU Core current. (Amps) (IC0C)	D2,K91F
+IC0C	sp87	CPU Vcore current (Amps) (IC0C)	J50I,J50S
+IC0C	sp69	CPU Core Current. (Amps) (IC0C)	J44,J52
+IC0C	sp69	CPU Core Current (Amps) (IC0C)	K90I
+IC0C	sp78	CPU core lowside current (Amps) (IC0C)	J64
+IC0C	sp87	CPU Core low side current (Amps) (IC0C)	J90
+IC0G	sp69	CPU AXG  low-side current (Amps) (IC0G)	D7,D7I,D8
+IC0I	sp2d	CPU I/O high-side current (Amps) (IC0I)	D8
+IC0M	sp5a	CPU Mem  load-side current (Amps) (IC0M)	J16,J16G,J17,J78,J78am
+IC0M	sp2d	CPU Mem  low-side current (Amps) (IC0M)	D8
+IC0R	sp5a	CPU Computing High Side current. (Amps) (IC0R)	D1,J11,J13,J15,J30,J31,J41,J43,J45,J45G,J53,J92
+IC0R	sp4b	CPU Computing High Side current. (Amps) (IC0R)	D2,J44,J52,K91F
+IC0R	sp5a	CPU High Side Current (Amps) (IC0R)	K21,K78,K92
+IC0R	sp4b	CPU High side average current. (SPS! force bit 5) (Amps) (IC0R)	J40G,J40I,J40S
+IC0R	sp4b	CPU High side current (Amps) (IC0R)	J50I,J50S
+IC0R	sp5a	CPU High Compute Current (IC0R)	K90I
+IC0R	sp3c	CPU highside current (Amps) (IC0R)	J64
+IC0S	sp2d	CPU SA  high-side current (Amps) (IC0S)	D8
+IC0S	sp5a	CPU VSA low side current (Amps) (IC0S)	J90
+IC1C	sp5a	VCCIO  current. (Amps) (IC1C)	D1,J11,J13,J30,J31
+IC1C	sp5a	CPU VCCIO Current (Amps) (IC1C)	K21,K78,K90I,K92
+IC1C	sp5a	CPU VCCIO current. (SPS! force bit 0) (Amps) (IC1C)	J40G,J40I,J40S
+IC1C	sp69	VCCIO 1.05V S0  current. (Amps) (IC1C)	D2,K91F
+IC1C	sp5a	1.05V S0 current. (Amps) (IC1C)	J41,J43
+IC1C	sp5a	CPU VCCIO current (Amps) (IC1C)	J50I,J50S
+IC1C	sp3c	1.05V to CPU/PCH lowside current (Amps) (IC1C)	J64
+IC1C	sp3c	1.05V PCH Core. (Amps) (IC1C)	J44
+IC1C	sp2d	1.05V PCH Core. (Amps) (IC1C)	J52
+IC1R	sp5a	CPU High Side Current from EMC1704 (Amps) (IC1R)	K21,K78
+IC2C	sp5a	CPU VCCSA current. (SPS! force bit 0) (Amps) (IC2C)	J40G,J40I,J40S
+IC2C	sp5a	VCCSA  current. (Amps) (IC2C)	J11,J13,J31
+IC2C	sp69	VCCSA S0  current. (Amps) (IC2C)	D2,K91F
+IC2C	sp5a	CPU VCCSA current (Amps) (IC2C)	J50I,J50S
+IC2C	sp69	1.05V CPU Core IMON. (Amps) (IC2C)	J44,J52
+IC2C	sp5a	CPU VCCSA Current (Amps) (IC2C)	K92
+IC2C	sp4b	VCCSA  current. (Amps) (IC2C)	D1
+IC3C	sp69	CPU DDR Current  (Amps) (IC3C)	J15,J45,J45G,J53
+IC3C	sp4b	CPU DDR Current (Debug)  (Amps) (IC3C)	D2
+ICMC	sp4b	S2 Camera Current  (Amps) (ICMC)	J45,J45G,J53
+ICMC	sp1e	Camera S2 Current (Amps) (ICMC)	J44,J52
+ICS0	sp78	CPU Core current. (Amps) (ICS0)	J41,J43
+ICS1	sp78	CPU current from CPU IMON. (Amps) (ICS1)	J41,J43
+ICTR	sp5a	CPU Riser 12V high side current (Amps) (ICTR)	J90
+ID0R	sp5a	DC In rail current. (Amps) (ID0R)	D1,J11,J13,J30,J31,J41,J43,J92
+ID0R	sp4b	DC In rail current. (Amps) (ID0R)	J15,J45,J45G,J53
+ID0R	sp5a	DCIN/Adapter Current (Amps) (ID0R)	K21,K78,K90I,K92
+ID0R	sp5a	DC In Average current. (SPS! force bit 3) (Amps) (ID0R)	J40G,J40I,J40S
+ID0R	sp3c	DC In rail current. (Amps) (ID0R)	D2,K91F
+ID0R	sp3c	DCIN/Adapter Current (SPS! force bit 3) (Amps) (ID0R)	K16,K99
+ID0R	sp5a	DC In current (Amps) (ID0R)	J50I,J50S
+ID0R	sp4b	DC In current AMON. (Amps) (ID0R)	J44,J52
+ID0R	sp5a	DCIN highside current (Amps) (ID0R)	J64
+ID1R	sp5a	CPU 1V5 average current. (SPS! force bit 3) (Amps) (ID1R)	J40G,J40I,J40S
+ID1R	sp5a	CPU 1V5 current (Amps) (ID1R)	J50I,J50S
+ID2E	sp78	Power Supply 12V current filtered (Amps) (ID2E)	J16G
+ID2F	sp78	Power Supply 12V current filtered and adjusted (ID2F)	J16G
+ID2I	sp78	Power Supply 12V current filter input S7.8 (Amps) (ID2I)	J16G,J70,J78,J78am
+ID2J	sp78	Power Supply 12V current max error (Amps) (ID2J)	J16G
+ID2L	ui16	Power Supply 12V current dynamic filter coeff (Seconds) (ID2L)	J16G
+ID2R	sp69	Power Supply 12V current (Amps) (ID2R)	D7,D7I,J16,J16G,J17,J70,J78,J78am
+ID2R	sp69	Power Supply 12V  current (Amps) (ID2R)	D8
+ID2T	sp78	Power Supply 12V current trend (Amps) (ID2T)	J16G
+IG0C	sp69	Ext GPU Core current. (Amps) (IG0C)	D2,J15,J45G,K91F
+IG0C	sp87	GPU Core  load-side current (Amps) (IG0C)	J16G,J17,J78,J78am
+IG0C	sp5a	Ext GPU Core Current (Amps) (IG0C)	K92
+IG0C	sp69	GPU Vcore average current. (SPS! force bit 0) (Amps) (IG0C)	J40G
+IG0C	sp4b	GPU Core   high-side current (Amps) (IG0C)	D7
+IG0C	sp87	GPU Core low-side current (Amps) (IG0C)	D8
+IG0C	sp87	GPU A Core low side current (Amps) (IG0C)	J90
+IG0F	sp3c	GPU FB   input-side current (Amps) (IG0F)	J16G,J17
+IG0F	sp3c	GPU FB  high-side current (Amps) (IG0F)	D8
+IG0I	sp5a	GPU VDDCI load-side current (Amps) (IG0I)	J78,J78am
+IG0R	sp4b	Ext GPU High Side current. (Amps) (IG0R)	D2,J15,J45G,K91F
+IG0R	sp5a	Ext GPU High Side Current. (Amps) (IG0R)	K92
+IG0R	sp3c	GPU High side average current. (SPS! force bit 5) (Amps) (IG0R)	J40G
+IG0R	sp5a	Ext GPU High Side current. (Amps) (IG0R)	J31
+IG0R	sp5a	GFX A Riser 12V high side current (Amps) (IG0R)	J90
+IG0S	sp5a	GPU A VDDCI low side current (Amps) (IG0S)	J90
+IG0U	sp4b	GPU Uncore high-side current (Amps) (IG0U)	D7
+IG1A	sp3c	GPU Aux  input-side current (Amps) (IG1A)	J78,J78am
+IG1C	sp69	Ext GPU Frame Buffer current.  (Amps) (IG1C)	J15,J45G
+IG1C	sp4b	GPU Core input-side current (Amps) (IG1C)	J16G,J17
+IG1C	sp69	GPU Core input-side current (Amps) (IG1C)	J78,J78am
+IG1C	sp4b	Ext GPU 1.8V current. (DEBUG) (Amps) (IG1C)	D2
+IG1C	sp5a	Ext GPU  1.8 V current. (DEBUG) (Amps) (IG1C)	K91F
+IG1C	sp5a	Ext GPU 1.8V Current (DEBUG) (Amps) (IG1C)	K92
+IG1C	sp87	GPU B Core low side current (Amps) (IG1C)	J90
+IG1F	sp3c	GPU FB   input-side current (Amps) (IG1F)	J78,J78am
+IG1R	sp5a	GFX B Riser 12V high side current (Amps) (IG1R)	J90
+IG1S	sp5a	GPU B VDDCI low side current (Amps) (IG1S)	J90
+IG2C	sp4b	Ext GPU 1.0V current. (DEBUG) (Amps) (IG2C)	D2,K91F
+IG2C	sp4b	Ext GPU 1.05V current. (Amps) (IG2C)	J15,J45G
+IG2C	sp5a	Ext GPU 1.0V Current (DEBUG) (Amps) (IG2C)	K92
+IG3C	sp4b	Ext GPU  1.35 V current. (Amps) (IG3C)	D2
+IG3C	sp4b	Ext GPU VRAM & I/O current. (DEBUG) (Amps) (IG3C)	K91F
+IG3C	sp5a	Ext GPU VRAM & I/O current Current (DEBUG) (Amps) (IG3C)	K92
+IH02	sp3c	Drive 0 12V load-side current (Amps) (IH02)	J17,J78,J78am
+IH02	sp1e	HDD  12V low-side current (Amps) (IH02)	D8
+IH05	sp2d	Drive 0 5V   load-side current (Amps) (IH05)	J16,J16G,J17,J78,J78am
+IH05	sp2d	HDD   5V low-side current (Amps) (IH05)	D7,D7I,D8
+IH0R	sp2d	HDD1 lowside current (Amps) (IH0R)	J64
+IH0R	sp2d	SSD 3V3 low side current (Amps) (IH0R)	J90
+IH1R	sp3c	Drive 1 3.3V load-side current (Amps) (IH1R)	J16,J16G,J17,J70,J78,J78am
+IH1R	sp2d	SSD 3.3V low-side current (Amps) (IH1R)	D7,D7I,D8
+IH1R	sp3c	SSD lowside current (Amps) (IH1R)	J64
+IHDC	sp4b	SSD Current  (Amps) (IHDC)	J15,J45,J45G,J53
+IHDC	sp5a	SSD Current  (Amps) (IHDC)	J11,J13
+IHDC	sp4b	HDD Current  (Amps) (IHDC)	D2
+IHDC	sp4b	HDD Current (DEBUG) (Amps) (IHDC)	K91F
+IHDC	sp5a	HDD  Current (DEBUG) (Amps) (IHDC)	K92
+IHDC	sp5a	HDD/SSD Current  (Amps) (IHDC)	J30
+IHSC	sp4b	Thunderbolt Current  (Amps) (IHSC)	D2,J15,J45,J53
+IHSC	sp2d	Thunderbolt Current. (Amps) (IHSC)	J44,J52
+IHSC	sp2d	Thunderbolt Current  (Amps) (IHSC)	J45G
+IHSP	sp3c	Thunderbolt Current  (Amps) (IHSP)	D1
+II0R	sp3c	TBT IO highside current (Amps) (II0R)	J64
+II0R	sp5a	I/O Board 12V high side current (Amps) (II0R)	J90
+ILDC	sp1e	LCD Panel Current  (Amps) (ILDC)	J15,J45,J45G,J53
+ILDC	sp5a	LCD panel Current (Amps) (ILDC)	J41,J43
+ILDC	sp1e	LCD panel Current. (Amps) (ILDC)	J44,J52
+ILDC	sp4b	LCD Driver Current (Debug)  (Amps) (ILDC)	D2
+ILDC	sp2d	LCD Panel Current  (Amps) (ILDC)	D1
+IM0C	sp5a	DDR current. (Amps) (IM0C)	D2,J15,J45,J45G,J53,K91F
+IM0C	sp5a	Memory average current. (SPS! force bit 2) (Amps) (IM0C)	J40G,J40I,J40S
+IM0C	sp5a	DDR 1.5V (Memory) current. (Amps) (IM0C)	J30,J31
+IM0C	sp5a	CPU DDR current. (Amps) (IM0C)	J41,J43
+IM0C	sp5a	Memory current (Amps) (IM0C)	J50I,J50S
+IM0C	sp5a	DDR3 Current (Amps) (IM0C)	K92
+IM0C	sp3c	1.2V to CPU/MEM lowside current (Amps) (IM0C)	J64
+IM0C	sp5a	DDR 1.3V (Memory) current. (Amps) (IM0C)	D1
+IM0C	sp4b	CPU and MEM current. (Amps) (IM0C)	J44
+IM0C	sp4b	CPU and MEM 1.2V DDR current. (Amps) (IM0C)	J52
+IM0R	sp5a	DIMM load-side current (Amps) (IM0R)	J16,J16G,J17,J70,J78,J78am
+IM0R	sp5a	DDR3 Current (Amps) (IM0R)	K21,K78
+IM0R	sp5a	DDR 1.5V (Memory) current. (Amps) (IM0R)	J11,J13
+IM0R	sp5a	DIMM low-side current (Amps) (IM0R)	D7,D7I
+IM0R	sp5a	DIMM     low-side current (Amps) (IM0R)	D8
+IM0R	sp2d	MEM highside current (Amps) (IM0R)	J64
+IM1C	sp5a	DDR 1.5V  Current (DEBUG) (Amps) (IM1C)	K92
+IM1C	sp5a	DDR 1.5V (CPU & Memory) current. (Amps) (IM1C)	J31
+IM1C	sp1e	1.8V S3 lowside current (Amps) (IM1C)	J64
+IM1C	sp2d	CPU DDR current. (Amps) (IM1C)	J44
+IM1C	sp1e	LPDDR current 1.2V. (Amps) (IM1C)	J52
+IM2C	sp1e	LPDDR current 1.8V. (Amps) (IM2C)	J52
+IM3C	sp5a	DDR S3 current. (Amps) (IM3C)	J41,J43
+IMTR	sp3c	Memory 1V5 high side current (Amps) (IMTR)	J90
+IN0C	sp5a	GFX core Current (Amps) (IN0C)	K21,K78,K92
+IN0C	sp5a	Internal GPU core current. (Amps) (IN0C)	J11,J13,J31
+IN0C	sp69	NB Int GPU current. (Amps) (IN0C)	D2,K91F
+IN0C	sp5a	MCP Core Current(SPS! force bit 10) (Amps) (IN0C)	K16,K99
+IN0C	sp5a	AGX Core Current (Amps) (IN0C)	K90I
+IN0C	sp5a	Internal GFX Core current. (Amps) (IN0C)	J30
+IN0C	sp78	Internal GFX Core current. (Amps) (IN0C)	D1
+IN0R	sp69	GFX Vcore average current. (SPS! force bit 0) (Amps) (IN0R)	J40G,J40I,J40S
+IN0R	sp69	GFX Vcore current (Amps) (IN0R)	J50I,J50S
+IN1C	sp3c	MCP DDR Current(SPS! force bit 11) (Amps) (IN1C)	K16,K99
+IN1R	sp5a	PCH 1V05 average current. (SPS! force bit 7) (Amps) (IN1R)	J40G,J40I,J40S
+IN1R	sp5a	PCH 1V05 current (Amps) (IN1R)	J50I,J50S
+IN1R	sp3c	PCH      low-side current (Amps) (IN1R)	D8
+IO0R	sp5a	Other High Side current.  (Amps) (IO0R)	D1,J11,J13,J30,J31,J41,J43
+IO0R	sp4b	Other High Side current.  (Amps) (IO0R)	D2,J15,K91F
+IO0R	sp5a	Other High Side Current (Amps) (IO0R)	K92
+IO0R	sp4b	Other High Side current. (Amps) (IO0R)	K90I
+IO3R	sp4b	Other 3.3V High Side current.  (Amps) (IO3R)	J45,J45G,J53
+IO3R	sp3c	Current other 3.3V High. (Amps) (IO3R)	J44,J52
+IO5R	sp4b	Other 5V High Side current.  (Amps) (IO5R)	J45,J45G,J53
+IO5R	sp4b	Battery current BMON. (Amps) (IO5R)	J44
+IO5R	sp3c	Battery current BMON. (Amps) (IO5R)	J52
+IODC	sp4b	ODD Current (DEBUG) (Amps) (IODC)	K91F
+IP0R	sp4b	Battery Current Discrete. (Amps) (IP0R)	J44,J52
+IPB1	sp5a	Discrete battery current. (Amps) (IPB1)	J41,J43
+IPBR	sp5a	PBus on battery current. (Amps) (IPBR)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J45,J45G,J53,J92
+IPBR	sp5a	Battery current BMON. (Amps) (IPBR)	J44,J52
+IR0C	sp5a	3.3V S0 current.  (Amps) (IR0C)	J41,J43
+IR0C	sp5a	S0 5.0V Current (DEBUG) (Amps) (IR0C)	K92
+IR1C	sp5a	Other High Side current.  (Amps) (IR1C)	J11,J13
+IR1C	sp5a	S3 3.30V Current (DEBUG) (Amps) (IR1C)	K92
+IR1R	sp1e	PCH/GPU/TBT 1.05V high-side current (Amps) (IR1R)	D8
+IR2C	sp5a	S3 5.0V Current (DEBUG) (Amps) (IR2C)	K92
+IR3C	sp5a	S5 3.30V Current (DEBUG) (Amps) (IR3C)	K92
+IR3C	sp3c	3.3V S0 current. (Amps) (IR3C)	J44
+IR3C	sp2d	3.3V S0 current. (Amps) (IR3C)	J52
+IR5C	sp5a	3.3V S5 current.  (Amps) (IR5C)	J41,J43
+IR5C	sp3c	5.0V S0 current. (Amps) (IR5C)	J44
+IR5C	sp2d	5.0V S0 current. (Amps) (IR5C)	J52
+IS2C	sp5a	S2 Camera Current  (Amps) (IS2C)	J41,J43
+ISBC	sp4b	PCH core  Current (Amps) (ISBC)	D2,J15
+ISBC	sp5a	PCH core  Current (DEBUG) (Amps) (ISBC)	K92
+ISDC	sp5a	SSD Current  (Amps) (ISDC)	J41,J43
+ISDC	sp5a	SSD Gumstick 2 current. (Amps) (ISDC)	D1
+ISDC	sp3c	SSD Current (Amps) (ISDC)	J44
+ISDC	sp2d	SSD Current (Amps) (ISDC)	J52
+ITPC	sp4b	T25 - Track Pad Current  (Amps) (ITPC)	D2
+ITPC	sp4b	T101 Boost/PBus Accuator Current  (Amps) (ITPC)	J45
+ITPC	sp4b	T101 Accuator Current  (Amps) (ITPC)	J53
+ITPC	sp3c	Trackpad Actuator Current (Amps) (ITPC)	J44
+ITPC	sp2d	Trackpad Actuator Current (Amps) (ITPC)	J52
+IW0R	sp3c	Wifi load-side current (Amps) (IW0R)	J16,J17,J78,J78am
+IW0R	sp2d	Wifi     low-side current (Amps) (IW0R)	D8
+IZAP	sp5a	Airport  Current (DEBUG) (Amps) (IZAP)	K21,K78
+IZAP	sp0f	WLAN Current (SPS! force bit 8) (Amps) (IZAP)	K16,K99
+IZBL	sp78	Backlight Current(IZBL)	K69,K84,K87
+IZBL	sp5a	Backlight  Current (DEBUG) (Amps) (IZBL)	K21,K78
+IZBL	sp0f	LCD Backlight Current (SPS! force bit 7) (Amps) (IZBL)	K16,K99
+IZDM	sp78	DIMM Current(IZDM)	K84,K87
+IZDM	sp5a	1V5S3 Current (SPS! force bit 6) (Amps) (IZDM)	K16,K99
+IZDM	sp78	1.5V S3 Current(IZDM)	K69
+IZHD	sp78	HDD Current(IZHD)	K69,K84,K87
+IZHD	sp5a	SSD  Current (DEBUG) (Amps) (IZHD)	K21,K78
+IZHD	sp2d	HDD Current (SPS! force bit 9) (Amps) (IZHD)	K16,K99
+IZOD	sp78	ODD Current(IZOD)	K69,K84,K87
+IZOP	sp78	Airport Current(IZOP)	K69,K84,K87
+Ic0R	sp4b	CSreg Current (SPS! force bit 12) (Amps) (Ic0R)	K16,K99
+MSLT	ui16	HP Power Throttle (MSLT)	D1,D2,J11,J13,J15,J30,J31,J40G,J40I,J40S,J45G,K21,K78,K90I,K91F,K92
+MSLT	flt 	HP Power Throttle (MSLT)	J41,J43,J44,J45
+MST1	sp87	Audio ScratchPad register (MST1)	D2
+MST2	sp87	Audio ScratchPad2 register (MST2)	D2
+MSTc	ui8 	CPU Plimit (MSTc)	D1,D2,D7,D7I,D8,J11,J13,J15,J16,J16G,J17,J30,J31,J40G,J40I,J40S,J41,J43,J44,J45,J45G,J50I,J50S,J52,J53,J64,J70,J78,J78am,J90,J92,K16,K21,K78,K90I,K91F,K92,K99
+MSTf	ui8 	Forced Idle Limit (MSTf)	D1,D2,D7,D7I,D8,J11,J13,J15,J16,J16G,J17,J30,J31,J40G,J40I,J40S,J41,J43,J44,J45,J45G,J50I,J50S,J52,J53,J64,J70,J78,J78am,J90,J92,K21,K78,K90I,K91F,K92
+MSTg	ui8 	GPU Plimit (MSTg)	D1,D2,D7,D7I,D8,J11,J13,J15,J16,J16G,J17,J30,J31,J40G,J40I,J40S,J41,J43,J44,J45,J45G,J50I,J50S,J52,J53,J64,J70,J78,J78am,J90,J92,K16,K21,K78,K90I,K91F,K92,K99
+MSTi	ui8 	2nd GPU Plimit (MSTi)	D2,J15,J16G,J17,J31,J45G,J78,J78am,J90,K91F,K92
+MSTm	ui8 	MEM Plimit (MSTm)	D1,D2,D7,D7I,D8,J11,J13,J15,J16,J17,J30,J31,J40G,J40I,J40S,J41,J43,J44,J45,J50I,J50S,J90,K16,K21,K78,K90I,K91F,K92,K99
+P50R	sp78	5V lowside power (I50R * V50R) (Watts) (P50R)	J64
+PA8C		A8 load-side rail power (Watts) (PA8C)	J680
+PAPC	sp78	Airport Power   (watts) (PAPC)	D2,J11,J13,J15,J31,J41,J43
+PAPC	sp78	Airport Power   (Watts) (PAPC)	J45,J45G,J53
+PAPC	sp78	Airport power (IAPC * 3.3V) (Watts) (PAPC)	J50I,J50S
+PAPC	sp78	Airport Power  (DEBUG) (watts) (PAPC)	K91F
+PAPC	sp78	Airport  Power (DEBUG) (Watts) (PAPC)	K92
+PAPC	sp78	WLAN lowside power (IAPC * 3.3V) (Watts) (PAPC)	J64
+PAPC	sp78	Airport power (Watts) (PAPC)	D1
+PB0R	sp78	Battery Discharge Power MLB (IB0R * VP0R)  (Watts) (PB0R)	K21,K78,K90I
+PB0R	sp78	Average battery discharge power MLB (IB0R * VP0R) (SPS! force bit 21) (Watts) (PB0R)	K16,K99
+PB0R	sp87	Battery Discharge Power MLB (IB0R * VP0R)  (Watts) (PB0R)	K92
+PB1R	sp78	Discrete BMON on battery power (Watts) (PB1R)	J41,J43
+PBLC	sp78	Backlight Input Power   (Watts) (PBLC)	D2,J11,J13,J15,J31,J41,J43,J44,J45,J45G,J52,J53
+PBLC	sp78	Backlight Input Power  (DEBUG) (Watts) (PBLC)	K91F
+PBLC	sp78	Backlight Power (DEBUG) (Watts) (PBLC)	K92
+PBLC	sp78	Backlight power (Watts) (PBLC)	D1
+PBLR		BL 12V rail power (Watts) (PBLR)	J680
+PC0C	sp96	CPU Core load-side power (Watts) (PC0C)	J16,J16G,J17,J70,J78,J78am
+PC0C	sp78	CPU Core Power (Watts) (PC0C)	D1,J11,J13,J30,J31
+PC0C	spa5	CPU Core Package Power (Includes Integrated Graphics Power) (Watts) (PC0C)	J45,J45G,J53
+PC0C	sp78	Average CPU Vcore power (IC0C * VC0C) (SPS! force bit 12) (Watts) (PC0C)	J40G,J40I,J40S
+PC0C	sp96	CPU Core low-side power (Watts) (PC0C)	D7,D7I,D8
+PC0C	sp96	CPU Core Power (Watts) (PC0C)	D2,K91F
+PC0C	sp78	CPU core Power (Watts) (PC0C)	K21,K78
+PC0C	sp78	Average CPU Vcore Power (SPS! force bit 20) (Watts) (PC0C)	K16,K99
+PC0C	sp78	CPU Vcore power (IC0C * VC0C) (Watts) (PC0C)	J50I,J50S
+PC0C	sp78	CPU Core (Watts) (PC0C)	J44,J52
+PC0C	fpo8	CPU Power (PC0C)	K17
+PC0C	spa5	CPU Core Package Power (Watts) (PC0C)	J15
+PC0C	sp87	CPU core Power (Watts) (PC0C)	K92
+PC0C	sp78	Load-side CPU Power (Watts) (PC0C)	K90I
+PC0C	sp78	CPU core lowside power (IC0C * VC0C) (Watts) (PC0C)	J64
+PC0C	spa5	CPU Core low side power (Watts) (PC0C)	J90
+PC0G	sp96	CPU AXG  low-side power (Watts) (PC0G)	D7,D7I,D8
+PC0I	sp96	CPU I/O high-side power (Watts) (PC0I)	D8
+PC0M	sp96	CPU Mem  load-side power (Watts) (PC0M)	J16,J16G,J17,J78,J78am
+PC0M	sp96	CPU Mem  low-side power (Watts) (PC0M)	D8
+PC0R	sp78	CPU Computing High Side Power (Watts) (PC0R)	D1,J11,J13,J30,J41,J43,J44,J52,J92
+PC0R	sp96	CPU Computing High Side Power (Watts) (PC0R)	J15,J45,J45G,J53
+PC0R	sp87	CPU Computing High Side Power (Watts) (PC0R)	D2,J31,K91F
+PC0R	sp78	Average CPU High side power (IC0R * VD0R) (SPS! force bit 10) (Watts) (PC0R)	J40G,J40I,J40S
+PC0R	sp78	CPU High Side Power (Watts) (PC0R)	K21,K78
+PC0R	sp78	CPU High side power (IC0R * VD0R) (Watts) (PC0R)	J50I,J50S
+PC0R	fpo8	CPU High Side Power (PC0R)	K17
+PC0R	sp87	CPU High Side Power (Watts) (PC0R)	K92
+PC0R	sp78	High-Side Compute Power (Watts) (PC0R)	K90I
+PC0R	sp78	CPU highside power (IC0R * VD0R) (Watts) (PC0R)	J64
+PC0S	sp96	CPU SA  high-side power (Watts) (PC0S)	D8
+PC0S	spa5	CPU VSA low side power (Watts) (PC0S)	J90
+PC1C	sp78	CPU VCCIO 1.05V S0 Power (Watts) (PC1C)	D1,J11,J13,J30,J31,K21,K78
+PC1C	sp87	CPU VCCIO 1.05V S0 Power (Watts) (PC1C)	D2,K91F,K92
+PC1C	sp78	Average CPU VCCIO power (IC1C * 1.05V) (SPS! force bit 12) (Watts) (PC1C)	J40G,J40I,J40S
+PC1C	sp78	1.05V S0 power (Watts) (PC1C)	J41,J43
+PC1C	sp78	CPU VCCIO power (IC1C * 1.05V) (Watts) (PC1C)	J50I,J50S
+PC1C	sp78	1.05V to CPU/PCH lowside power (IC1C * VC1C) (Watts) (PC1C)	J64
+PC1C	sp78	DDR Power CPU (Watts) (PC1C)	J44
+PC1C	sp78	1.05V PCH Power (Watts) (PC1C)	J52
+PC1R	sp78	CPU High Side Power from EMC1704 (Watts) (PC1R)	K21,K78
+PC2C	sp78	CPU VCCSA Power (Watts) (PC2C)	D1,J11,J13,J30,J31
+PC2C	sp87	CPU VCCSA Power (Watts) (PC2C)	D2,K91F,K92
+PC2C	sp78	Average CPU VCCSA power (IC2C * VC2C) (SPS! force bit 12) (Watts) (PC2C)	J40I,J40S
+PC2C	sp78	CPU VCCSA power (IC2C * VC2C) (Watts) (PC2C)	J50I,J50S
+PC2C	sp78	CPU Core IMON Power (Watts) (PC2C)	J44
+PC3C	sp87	CPU DDR Power (Watts) (PC3C)	D2,J15,J45,J45G,J53
+PCIC		CPU I/O load-side rail power (Watts) (PCIC)	J680
+PCLT	sp78	CPU Package Total Power (SMC Load Sensors) (Watts) (PCLT)	J11,J13,J31,J41,J43
+PCMC	sp87	S2 Camera Power (Watts) (PCMC)	J45,J45G,J53
+PCMC	sp78	S2 Camera Power (Watts) (PCMC)	J44,J52
+PCPC	sp78	CPU package core power (PECI) (Watts) (PCPC)	J11,J13,J30,J40G,J40I,J40S,J41,J43,J44,J50I,J50S,J64,J92,K21,K78,K90I
+PCPC	sp96	CPU package core power (PECI) (Watts) (PCPC)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+PCPC	sp87	CPU package core power (PECI) (Watts) (PCPC)	D1,D2,J15,J31,J45,J45G,J53
+PCPC	sp87	CPU core power via PECI (Watts) (PCPC)	K91F,K92
+PCPC	sp78	CPU Package Core Power (PECI) (Watts) (PCPC)	J52
+PCPC	spa5	CPU package core power (PECI) (Watts) (PCPC)	J90
+PCPG	sp78	CPU package Gfx power (PECI) (Watts) (PCPG)	J11,J13,J30,J40G,J40I,J40S,J41,J43,J44,J50I,J50S,J64,J92,K21,K78,K90I
+PCPG	sp96	CPU package Gfx power (PECI) (Watts) (PCPG)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+PCPG	sp87	CPU package Gfx power (PECI) (Watts) (PCPG)	D1,D2,J15,J31,J45,J45G,J53
+PCPG	sp87	CPU Gfx power via PECI (Watts) (PCPG)	K91F,K92
+PCPG	sp78	CPU Package Gfx Power (PECI) (Watts) (PCPG)	J52
+PCPR	sp96	CPU package total power (SMC) (PCPR)	J16,J16G,J17,J70,J78,J78am
+PCPT	sp78	CPU package total power (PECI) (Watts) (PCPT)	J11,J13,J30,J40G,J40I,J40S,J41,J43,J44,J50I,J50S,J64,J92,K21,K78,K90I
+PCPT	sp96	CPU package total power (PECI) (Watts) (PCPT)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+PCPT	sp87	CPU package total power (PECI) (Watts) (PCPT)	D1,D2,J15,J31,J45,J45G,J53
+PCPT	sp87	CPU total package power via PECI (Watts) (PCPT)	K91F,K92
+PCPT	sp78	CPU Package Total Power (PECI) (Watts) (PCPT)	J52
+PCPT	spa5	CPU package total power (PECI) (Watts) (PCPT)	J90
+PCS0	sp78	Chipset lowside Power (Watts) (PCS0)	J41,J43
+PCS1	sp78	Chipset IMon Power (Watts) (PCS1)	J41,J43
+PCTC		CT load-side rail power (Watts) (PCTC)	J680
+PCTR	sp96	CPU total equivalent input-side power (PCTR)	J16,J16G,J17,J70,J78,J78am
+PCTR	sp96	CPU total power (PC0C + PC0G) (Watts) (PCTR)	D7,D7I
+PCTR	sp96	CPU total power (PC0C+PC0G+PC0I+PC0M+PC0S) (Watts) (PCTR)	D8
+PCTR	spa5	CPU Riser total power (Watts) (PCTR)	J90
+PD0D	sp78	Power Supply Power Trend (Watts) (PD0D)	J50I,J50S,J64
+PD0E	sp78	Power supply filtered power (Watts) (PD0E)	J50I,J50S,J64
+PD0F	sp78	Power supply power filtered then adjusted (Watts) (PD0F)	J50I,J50S,J64
+PD0J	sp78	Power supply max error filtered output (Watts) (PD0J)	J50I,J50S,J64
+PD0K	sp78	Power supply filter coefficient (Watts) (PD0K)	J50I,J50S,J64
+PD0R	sp78	DCIN/Adapter rail Power (Watts) (PD0R)	K21,K78,K92
+PD0R	sp78	Average DC In rail power (ID0R * VD0R) (SPS! force bit 10) (Watts) (PD0R)	J40G,J40I,J40S
+PD0R	sp78	Average DCIN/Adapter rail Power (SPS! force bit 22) (Watts) (PD0R)	K16,K99
+PD0R	sp78	DC-In total power  (Watts) (PD0R)	J44,J52
+PD0R	sp87	DC-In rail Power  (Watts) (PD0R)	K91F
+PD0R	sp78	DCIN/Adapter Rail Power (Watts) (PD0R)	K90I
+PD0R	sp78	DCIN highside power (ID0R * VD0R) (Watts) (PD0R)	J64
+PD1R	sp78	Average CPU 1V5 power (ID1R * 1.5V) (SPS! force bit 10) (Watts) (PD1R)	J40G,J40I,J40S
+PD1R	sp78	CPU 1V5 power (ID1R * 1.5V) (Watts) (PD1R)	J50I,J50S
+PD2R	sp96	Power Supply 12V power (Watts) (PD2R)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+PD2R	spa5	Power Supply 12V power (Watts) (PD2R)	J90
+PDTR	sp78	DC-In total power  (Watts) (PDTR)	D1,J11,J13,J30,J41,J43,J92
+PDTR	sp87	DC-In total power  (Watts) (PDTR)	D2,J15,J31,J45,J45G,J53
+PDTR	sp78	DC In rail power (ID0R * VD0R) (Watts) (PDTR)	J50I,J50S
+PF3C		F3 load-side rail power (Watts) (PF3C)	J680
+PG0A	sp96	GPU Aux     load-side power (= x% of PG1A) (Watts) (PG0A)	J78,J78am
+PG0C	sp78	Ext GPU Power (Watts) (PG0C)	D2,J15,J31,J45G,K91F
+PG0C	sp96	GPU Core       load-side power (Watts) (PG0C)	J16G,J17
+PG0C	sp96	GPU Core    load-side power (Watts) (PG0C)	J78,J78am
+PG0C	fpo8	GPU Power (PG0C)	K17
+PG0C	sp78	GPU core Power (Watts) (PG0C)	K92
+PG0C	sp78	Average GPU Vcore power (IG0C * VG0C) (SPS! force bit 12) (Watts) (PG0C)	J40G
+PG0C	sp96	GPU Core   high-side power (Watts) (PG0C)	D7
+PG0C	sp96	GPU Core       low-side power (Watts) (PG0C)	D8
+PG0C	spa5	GPU A Core low side power (Watts) (PG0C)	J90
+PG0F	sp96	GPU Frame Buf input-side power (Watts) (PG0F)	J16G,J17
+PG0F	sp96	GPU Frame Buf high-side power (Watts) (PG0F)	D8
+PG0I	sp96	GPU VDDCI   load-side power (Watts) (PG0I)	J78,J78am
+PG0M	sp96	GPU Mem Ctl load-side power (= 30% of PG1F * efficiency) (Watts) (PG0M)	J78,J78am
+PG0R	sp87	Ext GPU Ext GPU High Side Power (Watts) (PG0R)	D2,J31,K91F
+PG0R	sp87	Ext GPU High Side Power (Watts) (PG0R)	J15,J45G
+PG0R	sp78	Ext GPU Ext GPU High Side Power (Watts) (PG0R)	K92
+PG0R	sp78	Average GPU High side power (IG0R * VD0R) (SPS! force bit 10) (Watts) (PG0R)	J40G
+PG0R	spa5	GFX A total power (Watts) (PG0R)	J90
+PG0S	spa5	GPU A VDDCI low side power (Watts) (PG0S)	J90
+PG0U	sp96	GPU Uncore high-side power (Watts) (PG0U)	D7
+PG0V	sp96	GPU VRAM    load-side power (= 70% of PG1F * efficiency) (Watts) (PG0V)	J78,J78am
+PG1A	sp96	GPU Aux    input-side power (Watts) (PG1A)	J78,J78am
+PG1C	sp96	GPU Core      input-side power (Watts) (PG1C)	J16G,J17
+PG1C	sp96	GPU Core+VDDCI input-side power (Watts) (PG1C)	J78,J78am
+PG1C	sp78	Ext GPU 1.8V Power (DEBUG) (Watts) (PG1C)	D2
+PG1C	sp78	Ext GPU Frame Buffer Power  (Watts) (PG1C)	J15
+PG1C	sp87	Ext GPU Frame Buffer Power  (Watts) (PG1C)	J45G
+PG1C	sp78	Ext GPU 1.8V Power  (DEBUG)  (Watts) (PG1C)	K91F
+PG1C	sp78	Ext GPU 1.8V Power  (DEBUG) (Watts) (PG1C)	K92
+PG1C	sp78	Ext GPU 1.8V Power  (Watts) (PG1C)	J31
+PG1C	spa5	GPU B Core low side power (Watts) (PG1C)	J90
+PG1F	sp96	GPU Frame Buf  input-side power (Watts) (PG1F)	J78,J78am
+PG1R	spa5	GFX B total power (Watts) (PG1R)	J90
+PG1S	spa5	GPU B VDDCI low side power (Watts) (PG1S)	J90
+PG2C	sp78	Ext GPU 1.0V Power  (DEBUG) (Watts) (PG2C)	D2,K91F,K92
+PG2C	sp78	Ext GPU 1.05V Power (Watts) (PG2C)	J15,J45G
+PG2C	sp78	Ext GPU 1.8V Power  (Watts) (PG2C)	J31
+PG3C	sp78	Ext GPU VRAM & I/O Power  (DEBUG) (Watts) (PG3C)	K91F,K92
+PG3C	sp78	Ext GPU 1.35V Power (Watts) (PG3C)	D2
+PG3C	sp78	Ext GPU 1.8V Power  (DEBUG) (Watts) (PG3C)	J31
+PG4C		External GPU rail 4 power (Watts) (PG4C)	J680
+PGPR	sp96	GPU package total power (SMC) (PGPR)	J16G,J17
+PGPR	sp96	GPU package total load-side power (SMC) (PGPR)	J78,J78am
+PGTR	sp96	GPU total equivalent high-side power (PGTR)	J16G,J17
+PGTR	sp96	GPU total input-side power (PGTR)	J78,J78am
+PGTR	sp96	GPU total power (PG0C + PG0U) (Watts) (PGTR)	D7
+PGTR	sp96	GPU total power (PG0C + PG0F) (Watts) (PGTR)	D8
+PGTR	spa5	GPU total high-side power (PG0R + PG1R) (Watts) (PGTR)	J90
+PH02	sp96	Drive 0 12V load-side power (Watts) (PH02)	J17,J78,J78am
+PH02	sp96	Drive 0 12V low-side power (Watts) (PH02)	D8
+PH05	sp96	Drive 0 5V load-side power (Watts) (PH05)	J16G,J17,J78,J78am
+PH05	sp96	Drive 0  5V low-side power (Watts) (PH05)	D8
+PH0C		SSD 3.3V load-side rail 0 power (Watts) (PH0C)	J680
+PH0F	sp78	Drive 0 filtered total load-side power (PH02 + PH05) * 2 (Watts) (PH0F)	J17,J64,J78,J78am
+PH0F	sp78	Drive 0 total (5V) filtered low-side power * 16 (Watts) (PH0F)	D7,D7I
+PH0F	sp78	Drive 0 total (5V) filtered load-side power * 2 (Watts) (PH0F)	J16,J16G
+PH0F	sp78	Drive 0 filtered total power (PH02 + PH05) * 16 (Watts) (PH0F)	D8
+PH0R	sp96	Drive 0 total load-side power (PH02 + PH05) (Watts) (PH0R)	J17,J78,J78am
+PH0R	sp96	Drive 0 total (5V) low-side power (Watts) (PH0R)	D7,D7I
+PH0R	sp96	Drive 0 total (5V) load-side power (Watts) (PH0R)	J16,J16G
+PH0R	sp96	Drive 0 total power (PH02 + PH05) (Watts) (PH0R)	D8
+PH0R	sp78	HDD1 lowside power (IH0R * V50R) (Watts) (PH0R)	J64
+PH0R	spa5	SSD 3V3 low side power (Watts) (PH0R)	J90
+PH1C		SSD 3.3V load-side rail 1 power (Watts) (PH1C)	J680
+PH1F	sp78	Drive 1 filtered load-side power * 3 (Watts) (PH1F)	J16,J16G,J17,J64,J70,J78,J78am
+PH1F	sp78	Drive 1 filtered low-side power * 16 (Watts) (PH1F)	D7,D7I,D8
+PH1R	sp96	Drive 1 load-side power (Watts) (PH1R)	J16,J16G,J17,J70,J78,J78am
+PH1R	sp96	Drive 1 low-side power (Watts) (PH1R)	D7,D7I,D8
+PH1R	sp78	Drive 1 power (IH1R * 3.3V) (Watts) (PH1R)	J50I,J50S
+PH1R	sp78	SSD lowside power (IH1R * 3.3V) (Watts) (PH1R)	J64
+PH2R	sp78	Drive 2 power (IH2R * 3.3V) (Watts) (PH2R)	J50I,J50S
+PHDC	sp78	SSD Power  (Watts) (PHDC)	J11,J13,J15,J45,J45G,J53
+PHDC	sp78	HDD Power  (Watts) (PHDC)	D2,J30,J31
+PHDC	sp78	HDD Power  (DEBUG) (Watts) (PHDC)	K91F
+PHDC	sp78	HDD Power (DEBUG) (Watts) (PHDC)	K92
+PHPC	sp87	HP Power (PHPC)	D1,D2,J15,J31,J40G,J40I,J40S,K91F,K92
+PHPC	sp78	Thermal control Power (Watts) (PHPC)	D1,J11,J13,J30,J41,J43,J92
+PHPC	sp78	HP Power (PHPC)	J11,J13,J30,K21,K78,K90I
+PHPC	sp87	HP Power (Watts) (PHPC)	D2,J15,J53,K91F
+PHPC	sp78	Average Thermal Control Power (SPS! force bit 13) (Watts) (PHPC)	J40G,J40I,J40S
+PHPC	fpo8	Heatpipe Power (PHPC)	K17
+PHPC	sp87	Thermal control Power (Watts) (PHPC)	J31
+PHPC	sp78	Thermal Control Power (Watts) (PHPC)	J64
+PHPC	sp78	HP Power (Watts) (PHPC)	J52
+PHSC	sp78	Thunderbolt Power (Watts) (PHSC)	D2,J15,J44,J45,J45G,J52,J53
+PHSP	sp78	T29 Power  (Watts) (PHSP)	J31
+PHSP	sp78	Thunderbolt Power (Watts) (PHSP)	D1
+PI0R	sp78	TBT IO highside power (II0R * VD0R) (Watts) (PI0R)	J64
+PI0R	spa5	I/O Board total power (Watts) (PI0R)	J90
+PLDC	sp78	LCD Panel Power (Watts) (PLDC)	J44,J52,J53
+PLDC	sp87	LCD Driver Power (Watts) (PLDC)	D1,D2
+PLDC	sp87	LCD Panel Power (Watts) (PLDC)	J45,J45G
+PM0C	sp78	Average Memory power (IM0C * 1.5V) (SPS! force bit 12) (Watts) (PM0C)	J40G,J40I,J40S
+PM0C	sp78	DDR Power (Memory) (Watts) (PM0C)	D1,J30,J31
+PM0C	sp78	CPU DDR Power. (Watts) (PM0C)	J41,J43
+PM0C	sp78	Memory power (IM0C * VM0R) (Watts) (PM0C)	J50I,J50S
+PM0C	sp78	1.2V to CPU/MEM lowside power (IM0C * VM0C) (Watts) (PM0C)	J64
+PM0C	sp78	DDR Power CPU & MEM (Watts) (PM0C)	J44
+PM0C	sp78	DDR Power 1.2V CPU & MEM (Watts) (PM0C)	J52
+PM0R	sp78	DDR Power (Watts) (PM0R)	D2,J15,J45,J45G,J53,K21,K78,K91F,K92
+PM0R	sp96	DIMM load-side power (Watts) (PM0R)	J16,J16G,J17,J70,J78,J78am
+PM0R	sp96	DIMM low-side power (Watts) (PM0R)	D7,D7I,D8
+PM0R	sp78	DDR Power (Memory) (Watts) (PM0R)	J11,J13
+PM0R	sp78	MEM highside power (IM0R * VD0R) (Watts) (PM0R)	J64
+PM0f	sp2d	DIMM load-side power / SQR(Fan RPM) (PM0f)	J16G,J70,J78,J78am
+PM1C	sp78	DDR 1.5V Power (DEBUG) (Watts) (PM1C)	K92
+PM1C	sp78	DDR Power (CPU & Memory) (Watts) (PM1C)	J31
+PM1C	sp78	1.8V S3 lowside power (IM1C * VM1C) (Watts) (PM1C)	J64
+PM1C	sp78	DDR Power CPU (Watts) (PM1C)	J44
+PM1C	sp78	DDR Power 1.2V CPU (Watts) (PM1C)	J52
+PM2C	sp78	DDR Power 1.8V CPU (Watts) (PM2C)	J52
+PM3C	sp78	DDR S3 Power. (Watts) (PM3C)	J41,J43
+PMCC		MC load-side rail power (Watts) (PMCC)	J680
+PMTR	spa5	Memory total power (Watts) (PMTR)	J90
+PN0C	sp78	Int GPU core Power (Watts) (PN0C)	J11,J13,J30,J31
+PN0C	sp78	NB Int GPU Power (Watts) (PN0C)	K21,K78,K92
+PN0C	sp78	Average MCP core Power (IN0C * VN0C) (SPS! force bit 23) (Watts) (PN0C)	K16,K99
+PN0C	sp78	Load-side AXG Core Power (Watts) (PN0C)	K90I
+PN0C	sp78	AXG core Power (Watts) (PN0C)	D1
+PN0R	sp78	Average GFX Vcore power (IN0R * VN0R) (SPS! force bit 12) (Watts) (PN0R)	J40G,J40I,J40S
+PN0R	sp78	NB Int GPU Power (Watts) (PN0R)	D2,K91F
+PN0R	sp78	GFX Vcore power (IN0R * VN0R) (Watts) (PN0R)	J50I,J50S
+PN0R	fpo8	MCP VCore Power (PN0R)	K17
+PN1C	sp78	Average MCP memory Power (IN1C * 1.35V) (SPS! force bit 24) (Watts) (PN1C)	K16,K99
+PN1R	sp78	Average PCH 1V05 power (IN1R * 1.05V) (SPS! force bit 12) (Watts) (PN1R)	J40G,J40I,J40S
+PN1R	sp78	PCH 1V05 power (IN1R * 1.05V) (Watts) (PN1R)	J50I,J50S
+PN1R	sp96	PCH  low-side power (Watts) (PN1R)	D8
+PO0R	sp78	Other High Side Power   (Watts) (PO0R)	D1,J11,J13,J30,J31,J41,J43
+PO0R	sp87	Other High Side Power   (Watts) (PO0R)	D2,J15,K91F,K92
+PO0R	sp78	High-side 5v 3.3v Rail Power (Watts) (PO0R)	K90I
+PO3R	sp87	Other 3.3V High Side Power   (Watts) (PO3R)	J45,J45G,J53
+PO3R	sp78	Other 3.3V High Side Power   (Watts) (PO3R)	J44,J52
+PO5R	sp87	Other 5V High Side Power   (Watts) (PO5R)	J45,J45G,J53
+PO5R	sp78	Other 5V High Side Power   (Watts) (PO5R)	J44,J52
+POLR		Left Thunderbolt/I/O rail power (Watts) (POLR)	J680
+PORR		Right Thunderbolt/I/O rail power (Watts) (PORR)	J680
+PP0R	sp78	Batt Dischg Power Discrete (Watts) (PP0R)	J44,J52
+PP0R	fpo8	PBus Power (PP0R)	K17
+PP0R	sp96	PBus rail Power (Watts) (PP0R)	K91F
+PPBR	sp78	PBus on battery power (Watts) (PPBR)	D1,J11,J13,J30,J41,J43,J92
+PPBR	sp96	PBus on battery power (Watts) (PPBR)	D2,J15,J45,J45G,J53
+PPBR	sp78	PBus (BMON) Batt Dischg Power (Watts) (PPBR)	J44,J52
+PPBR	sp87	PBus on battery power (Watts) (PPBR)	J31
+PR0C	sp78	3.3V S0 power (Watts) (PR0C)	J41,J43
+PR0R	sp78	S0 5.0V Power (DEBUG) (Watts) (PR0R)	K92
+PR1C	sp78	Other High Side current.  (Amps) (PR1C)	J11,J13
+PR1C	sp78	3.3V S3.  (Amps) (PR1C)	J31
+PR1R	sp78	S3 3.30V Power (DEBUG) (Watts) (PR1R)	K92
+PR1R	sp96	1.05V high-side power (Watts) (PR1R)	D8
+PR2R	sp78	S3 5.0V Power (DEBUG) (Watts) (PR2R)	K92
+PR3C	sp78	3.3V in S0 Power(Watts) (PR3C)	J44,J52
+PR3R	sp78	S5 3.30V Power (DEBUG) (Watts) (PR3R)	K92
+PR5C	sp78	3.3V S5 power (Watts) (PR5C)	J41,J43
+PR5C	sp78	5VV in S0 Power(Watts) (PR5C)	J44,J52
+PS1C		S1 load-side rail power (Watts) (PS1C)	J680
+PS2C	sp78	S2 Camera power (Watts) (PS2C)	J41,J43
+PSBC	sp87	PCH core Power (DEBUG) (Watts) (PSBC)	D2
+PSBC	sp87	PCH core Power (Watts) (PSBC)	J15
+PSBC	sp78	PCH core Power (DEBUG) (Watts) (PSBC)	K92
+PSDC	sp78	SSD Power  (Watts) (PSDC)	D1,J41,J43
+PSDC	sp78	SSD Fixed 3.3V Power (Watts) (PSDC)	J44,J52
+PSLC		SL 3.3V rail power (Watts) (PSLC)	J680
+PSTR	sp78	System Total Power Consumed (Delayed 1 Second) (Watts) (PSTR)	D1,J11,J13,J30,J41,J43,J44,J50I,J50S,J52,J64,J92
+PSTR	sp96	System Total Power Consumed (Delayed 1 Second) (Watts) (PSTR)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+PSTR	sp87	System Total Power Consumed (Delayed 1 Second) (Watts) (PSTR)	D2,J15,J31,J45,J45G,J53
+PSTR	spa5	System Total Power Consumed (Delayed 1 Second) (Watts) (PSTR)	J90
+PTHC	sp87	HP Power Target (PTHC)	D1,D2,J15,J31,J40G,J40I,J40S,K16,K91F,K92,K99
+PTHC	sp78	HP Power Target (PTHC)	J11,J13,J30,K21,K78,K90I
+PTHC	flt 	HP Power Target (PTHC)	J41,J43,J44,J45,J45G
+PTPC	sp87	T101 Boost/PBus Accuator Power (Watts) (PTPC)	J45
+PTPC	spa5	T101 Accuator Power (Watts) (PTPC)	J53
+PTPR	sp87	T25 - Track Pad Power (Watts) (PTPR)	D2
+PULC		Left USB-C load-side rail power (Watts) (PULC)	J680
+PURC		Right USB-C load-side rail power (Watts) (PURC)	J680
+PW0R	sp96	Wifi load-side power (Watts) (PW0R)	J16,J17,J78,J78am
+PW0R	sp96	Wifi low-side power (Watts) (PW0R)	D8
+PZ0E	flt 	Zone 0 Target Power (PZ0E)	J16,J16G,J17,J52,J53,J64,J70,J78,J78am,J90,J92
+PZ0E	sp96	Zone 0 Target Power (PZ0E)	D7,D7I,D8
+PZ0E	sp78	Zone 0 Target Power (PZ0E)	J50I,J50S
+PZ0F	flt 	Zone 0 Filtered Power (PZ0F)	J16,J16G,J17,J41,J43,J44,J45,J45G,J52,J53,J64,J70,J78,J78am,J90,J92
+PZ0F	sp96	Zone 0 Filtered Power (PZ0F)	D7,D7I
+PZ0F	sp78	Zone 0 Filtered Power (PZ0F)	J50I,J50S
+PZ0G	sp96	Zone 0 average power (Watts) (PZ0G)	D7,D7I,J16,J16G,J17,J70,J78,J78am
+PZ0G	sp96	Zone 0 Power (PZ0G)	D8
+PZ0G	spa5	Zone 0 average power (Watts) (PZ0G)	J90
+PZ0T	flt 	Zone 0 Abstract Throttle (PZ0T)	J16,J16G,J17,J52,J53,J64,J70,J78,J78am,J92
+PZ0T	ui16	Zone 0 Abstract Throttle (PZ0T)	D7,D7I,D8,J50I,J50S,J90
+PZ1E	flt 	Zone 1 Target Power (PZ1E)	J16G,J17,J45G,J52,J53,J64,J70,J78,J78am,J90,J92
+PZ1E	sp87	Zone 1 Target Power (PZ1E)	J15
+PZ1F	flt 	Zone 1 Filtered Power (PZ1F)	J16G,J17,J45G,J52,J53,J64,J70,J78,J78am,J90,J92
+PZ1F	sp87	Zone 1 Filtered Power (PZ1F)	J15
+PZ1G	sp96	Zone 1 average power (Watts) (PZ1G)	J16G,J17,J78,J78am
+PZ1T	flt 	Zone 1 Abstract Throttle (PZ1T)	J16G,J17,J52,J53,J64,J70,J78,J78am,J92
+PZ1T	ui16	Zone 1 Abstract Throttle (PZ1T)	J15,J45G,J90
+PZ2E	flt 	Zone 2 Target Power (PZ2E)	J16G,J17,J45G,J64,J70,J78,J78am,J90,J92
+PZ2E	sp87	Zone 1 Target Power (PZ2E)	J15
+PZ2F	flt 	Zone 2 Filtered Power (PZ2F)	J16G,J17,J45G,J64,J70,J78,J78am,J90,J92
+PZ2F	sp87	Zone 1 Filtered Power (PZ2F)	J15
+PZ2G	sp96	Zone 2 average power (Watts) (PZ2G)	J16G,J17,J78,J78am
+PZ2T	flt 	Zone 2 Abstract Throttle (PZ2T)	J16G,J17,J64,J70,J78,J78am,J92
+PZ2T	ui16	Zone 2 Abstract Throttle (PZ2T)	J45G,J90
+PZ2T	ui16	Zone 1 Abstract Throttle (PZ2T)	J15
+PZ3E	flt 	Zone 3 Target Power (PZ3E)	J16G,J17,J45G,J70,J78,J78am,J90
+PZ3E	sp87	Zone 1 Target Power (PZ3E)	J15
+PZ3F	flt 	Zone 3 Filtered Power (PZ3F)	J16G,J17,J45G,J70,J78,J78am,J90
+PZ3F	sp87	Zone 1 Filtered Power (PZ3F)	J15
+PZ3G	sp96	Zone 3 average power (Watts) (PZ3G)	J16G,J17,J78,J78am
+PZ3T	flt 	Zone 3 Abstract Throttle (PZ3T)	J16G,J17,J70,J78,J78am
+PZ3T	ui16	Zone 3 Abstract Throttle (PZ3T)	J45G,J90
+PZ3T	ui16	Zone 1 Abstract Throttle (PZ3T)	J15
+PZ4E	flt 	Zone 4 Target Power (PZ4E)	J16G,J17,J70,J78,J78am,J90
+PZ4F	flt 	Zone 4 Filtered Power (PZ4F)	J16G,J17,J70,J78,J78am,J90
+PZ4G	sp96	Zone 4 average power (Watts) (PZ4G)	J16,J16G,J17,J78,J78am
+PZ4T	flt 	Zone 4 Abstract Throttle (PZ4T)	J16G,J17,J70,J78,J78am
+PZ4T	ui16	Zone 4 Abstract Throttle (PZ4T)	J90
+PZ5E	flt 	Zone 5 Target Power (PZ5E)	J16,J16G,J17,J70,J78,J78am,J90
+PZ5F	flt 	Zone 5 Filtered Power (PZ5F)	J16,J16G,J17,J70,J78,J78am,J90
+PZ5G	sp96	Zone 5 average power (Watts) (PZ5G)	J16G,J70,J78,J78am
+PZ5T	flt 	Zone 5 Abstract Throttle (PZ5T)	J16,J16G,J17,J70,J78,J78am
+PZ5T	ui16	Zone 5 Abstract Throttle (PZ5T)	J90
+PZAP	sp78	Airport Power(PZAP)	K69,K84,K87
+PZAP	sp78	Airport  Power (DEBUG) (Watts) (PZAP)	K21,K78
+PZAP	sp78	WIFI Power (IZAP * 3.3V) (SPS! force bit 27) (Watts) (PZAP)	K16,K99
+PZBL	sp78	Backlight Power(PZBL)	K69,K84,K87
+PZBL	sp78	Backlight Power (DEBUG) (Watts) (PZBL)	K21,K78
+PZBL	sp78	LCD Backlight Power (IZBL * VP0R) (SPS! force bit 26) (Watts) (PZBL)	K16,K99
+PZDM	sp78	Memory Power (IZDM * 1.35V) (SPS! force bit 29) (Watts) (PZDM)	K16,K99
+PZHD	sp78	HDD Power(PZHD)	K69,K84,K87
+PZHD	sp78	DIMM Power(PZHD)	K69,K84,K87
+PZHD	sp78	SSD Power (DEBUG) (Watts) (PZHD)	K21,K78
+PZHD	sp78	SSD Power (IZHD * 3.3V) (SPS! force bit 28) (Watts) (PZHD)	K16,K99
+PZOD	sp78	ODD Power(PZOD)	K69,K84,K87
+Pc0R	sp78	Average main chipset Power (Ic0R * VP0R) (SPS! force bit 25) (Watts) (Pc0R)	K16,K99
+TA0P	sp78	Ambient cooked temp (DegC) (TA0P)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TA0P	sp78	Ambient 0 temp (DegC) (TA0P)	J40G,J40I,J40S,J50I,J50S
+TA0P	sp78	Airflow temp (DegC) (TA0P)	J30,J31,J44,J52
+TA0P	sp78	Ambient 1 temp (DegC) (TA0P)	J64
+TA0P	sp78	Ambient cooked temp 0 (DegC) (TA0P)	J90
+TA0V	sp78	Ambient virtual temp (DegC) (TA0V)	D7,D7I,D8,J16,J16G,J17,J64,J70,J78,J78am
+TA0p	sp78	Ambient raw temp (DegC) (TA0p)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am,J90
+TA0p	sp78	Ambient 1 raw temp (DegC) (TA0p)	J64
+TA1P	sp78	Ambient 1 temp (DegC) (TA1P)	J40G,J40I,J40S,J50I,J50S
+TA1P	sp78	Ambient 2 temp (DegC) (TA1P)	J64
+TA1P	sp78	DCIN Airflow temp (DegC) (TA1P)	D1
+TA1P	sp78	Ambient cooked temp 1 (DegC) (TA1P)	J90
+TA1p	sp78	Ambient 2 raw temp (DegC) (TA1p)	J64
+TA2P	sp78	Ambient 3 temp (DegC) (TA2P)	J64
+TA2P	sp78	Ambient cooked temp 2 (DegC) (TA2P)	J90
+TA2p	sp78	Ambient 3 raw temp (DegC) (TA2p)	J64
+TB0T	sp78	Battery Temp(TB0T)	K17,K18,K19,K19I,K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m98,m98a
+TB0T	sp78	Battery temp. (DegC) (TB0T)	K16,K99
+TB0T	sp78	Battery Temp (TB0T)	M96
+TB0T	sp78	Battery temp (SBS! force bit 0) (DegC) (TB0T)	J52
+TB1T	sp78	Battery Thermistor 0(TB1T)	K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m98,m98a
+TB1T	sp78	Battery Thermistor Temp 0(TB1T)	K17,K18,K19,K19I
+TB1T	sp78	Battery TS1 Temp (DegC) (TB1T)	K16,K99
+TB1T	sp78	Battery Thermistor Temp 1 (TB1T)	M96
+TB2T	sp78	Battery Thermistor 1(TB2T)	K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m98,m98a
+TB2T	sp78	Battery Thermistor Temp 1(TB2T)	K17,K18,K19,K19I
+TB2T	sp78	Battery TS2 Temp (DegC) (TB2T)	K16,K99
+TB2T	sp78	Battery Thermistor Temp 2 (TB2T)	M96
+TB3T	sp78	Battery Ambient Temp (TB3T)	K20,K24,K36b,M97,M97a,m98,m98a
+TB3T	sp78	Battery Temp(TB3T)	K19,K19I
+TBXT	sp78	Battery temp (Same as TB0T) (DegC) (TBXT)	J53,J92
+TC0C	sp78	CPU Core PECI temp (DegC) (TC0C)	J11,J13,J41,J43,K21,K78,K90I,K92
+TC0C	sp78	CPU Core 0 temp (PECI) (DegC) (TC0C)	J40G,J40I,J40S,J52
+TC0C	sp78	CPU Core 0 absolute cooked temp (PECI) (DegC) (TC0C)	J50I,J50S,J64
+TC0C	sp78	CPU Core PECI Temp(TC0C)	K17,K18
+TC0C	sp78	CPU Core PECI temp (DegC) (SIS! force bit 7) (TC0C)	K91F
+TC0D	sp78	CPU Die Temp(TC0D)	K17,K18,K19,K19I,K20,K24,K36b,K6,K69,K84,K87,M96,M97,M97a,m87,m88,m98,m98a
+TC0D	sp78	CPU die temp (DegC) (TC0D)	J11,J13,J40G,J40I,J40S,J50I,J50S,K21,K78,K90I,K91F,K92
+TC0D	sp78	CPU Die temp (SIT! force bit 9) (DegC) (TC0D)	K16,K99
+TC0E	sp78	CPU die Virtual temp (DegC) (TC0E)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78
+TC0E	sp78	CPU PECI Die filtered temp (DegC) (TC0E)	J16,J16G,J17,J70,J78,J78am,J90
+TC0E	sp78	CPU PECI die Virtual temp (DegC) (TC0E)	J40G,J40I,J40S,J50I,J50S,J64
+TC0E	sp78	CPU PECI Die filtered temp for fan control (DegC) (TC0E)	D7,D7I,D8
+TC0F	sp78	CPU PECI die temp filtered then adjusted (DegC) (TC0F)	D1,D2,J15,J30,J40G,J40I,J40S,J41,J43,J44,J50I,J50S,J52,J53,J64,J92,K21,K78
+TC0F	sp78	CPU PECI Die filtered and adjusted temp for fan/power control (DegC) (TC0F)	J16,J16G,J17,J70,J78,J78am,J90
+TC0F	sp78	CPU PECI Die filtered and adjusted temp for power control (DegC) (TC0F)	D7,D7I,D8
+TC0J	sp78	CPU PECI die temp max error filtered output (DegC) (TC0J)	J30,J40G,J40I,J40S,J50I,J50S,J64
+TC0J	sp78	CPU PECI Die temp max error used in TC0F=TC0E+ (DegC) (TC0J)	J16G,J70,J78,J78am,J90
+TC0J	sp78	CPU PECI die temp max error filtered output used in TC0F=TC0E+TC0G (DegC) (TC0J)	J11,J13,K21,K78
+TC0L	ui16	CPU PECI Die dynamic filter coeff (Seconds) (TC0L)	J16G,J70,J78,J78am,J90
+TC0P	sp78	CPU proximity temp (DegC) (TC0P)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78,K90I,K91F,K92
+TC0P	sp78	CPU Prox Temp(TC0P)	K17,K18,K19,K19I,K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m87,m88,m98,m98a
+TC0P	sp78	CPU proximity temp (filtered) (DegC) (TC0P)	J40G,J40I,J40S,J50I,J50S,J64
+TC0P	sp78	CPU Proximity cooked temp (DegC) (TC0P)	J16G,J70,J78,J78am,J90
+TC0P	sp78	CPU proxmity temp (SIT! force bit 10) (DegC) (TC0P)	K16,K99
+TC0T	sp78	CPU PECI Die temp Trend (DegC) (TC0T)	J16G,J70,J78,J78am,J90
+TC0c	sp78	CPU Core 0 absolute raw temp (PECI) (DegC) (TC0c)	J16G,J64,J70,J78,J78am
+TC0d	sp78	CPU die raw temp (DegC) (TC0d)	J40G,J40I,J40S,J50I,J50S
+TC0p	sp78	CPU Proximity raw temp (DegC) (TC0p)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TC0p	sp78	CPU proximity raw temp (DegC) (TC0p)	J64
+TC1C	sp78	CPU Core 0 temp (PECI) (DegC) (TC1C)	D1,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J53,J92,K21,K78
+TC1C	sp78	CPU Core 1 temp (PECI) (DegC) (TC1C)	J40G,J40I,J40S,J52
+TC1C	sp78	CPU Core 1 absolute cooked temp (PECI) (DegC) (TC1C)	J50I,J50S,J64
+TC1C	sp78	Max of CPU Core vs. Mem Ctlr/IG PECI Temps(TC1C)	K17,K18
+TC1C	sp78	Max of CPU Core vs. Mem Ctlr/IG PECI temps (DegC) (SIS! force bit 5) (TC1C)	K91F
+TC1P	sp78	CPU VR Proximity cooked temp (DegC) (TC1P)	J90
+TC1c	sp78	CPU Core 1 absolute raw temp (PECI) (DegC) (TC1c)	J16G,J64,J70,J78,J78am
+TC2C	sp78	CPU Core 1 temp (PECI) (DegC) (TC2C)	D1,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J53,J92,K21,K78
+TC2C	sp78	CPU Core 2 temp (PECI) (DegC) (TC2C)	J40S
+TC2C	sp78	CPU Core 2 absolute cooked temp (PECI) (DegC) (TC2C)	J50S
+TC2c	sp78	CPU Core 2 absolute raw temp (PECI) (DegC) (TC2c)	J16G,J70,J78,J78am
+TC3C	sp78	CPU Core 2 temp (PECI) (DegC) (TC3C)	D1,J15,J30,J31,J45,J45G,J53
+TC3C	sp78	CPU Core 3 temp (PECI) (DegC) (TC3C)	J40S
+TC3C	sp78	CPU Core 3 absolute cooked temp (PECI) (DegC) (TC3C)	J50S
+TC3c	sp78	CPU Core 3 absolute raw temp (PECI) (DegC) (TC3c)	J16G,J70,J78,J78am
+TC4C	sp78	CPU Core 3 temp (PECI) (DegC) (TC4C)	D1,J15,J30,J31,J45,J45G,J53
+TCFC	ui16	CPU PECI die temp filter coeff (TCFC)	J30,J40G,J40I,J40S,J50I,J50S,J52,J53,J64
+TCGC	sp78	CPU Gfx Core temp (PECI) (DegC) (TCGC)	D1,J30,J40G,J40I,J40S,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78
+TCGC	sp78	CPU Gfx Core absolute cooked temp (PECI) (DegC) (TCGC)	J50I,J50S,J64
+TCGc	sp78	CPU Gfx absolute raw temp (PECI) (DegC) (TCGc)	J16G,J70,J78,J78am
+TCGc	sp78	CPU Gfx Core absolute raw temp (PECI) (DegC) (TCGc)	J64
+TCHP	sp78	Charger proximity temp  (DegC) (TCHP)	J41,J43,J92
+TCMX	sp78	Max PECI reported temp  (DegC) (TCMX)	J92
+TCMc	sp78	CPU eDRAM Hot Indicator(PECI) (DegC) (TCMc)	J53
+TCSA	sp78	CPU System Agent Core temp (PECI) (DegC) (TCSA)	D1,J30,J41,J43,J44,J45,J45G,J52,J53,J92,K21,K78
+TCSC	sp78	CPU System Agent Core temp (PECI) (DegC) (TCSC)	J40G,J40I,J40S
+TCSC	sp78	CPU System Agent Core absolute cooked temp (PECI) (DegC) (TCSC)	J50I,J50S,J64
+TCSc	sp78	CPU System Agent Core absolute raw temp (PECI) (DegC) (TCSc)	J16G,J64,J70,J78,J78am
+TCTD	sp78	CPU PECI die temp Trend (DegC) (TCTD)	D2,J15,J30,J40G,J40I,J40S,J50I,J50S,J52,J53,J64,K21,K78
+TCTD	sp78	CPU PECI die temp Trend (SIS! force bit 5) (DegC) (TCTD)	D1
+TCXC	sp78	CPU PECI die temp  (DegC) (TCXC)	D2,J15,J44,J45,J45G,J52,J53
+TCXC	sp78	CPU Core PECI temp (DegC) (SIS! force bit 7) (TCXC)	D1,J30,J31,J92
+TCXC	sp78	CPU Max Package Core temp (PECI) (DegC) (TCXC)	J40G,J40I,J40S
+TCXC	sp78	CPU Max Package Core absolute cooked temp (PECI) (DegC) (TCXC)	J50I,J50S,J64
+TCXR	sp78	CPU Max Package Core relative cooked temp (PECI) (DegC) (TCXR)	J16G,J70,J78,J78am,J90
+TCXc	sp78	CPU Max Package Core absolute raw temp (PECI) (DegC) (TCXc)	D7,D7I,D8,J16,J16G,J17,J64,J70,J78,J78am
+TCXr	sp78	CPU Max Package Core relative raw temp (PECI) (DegC) (TCXr)	D7,D7I,D8,J16,J16G,J17,J64,J70,J78,J78am
+TF0S	sp78	Fan 0 synthetic temperature (DegC) (TF0S)	J680
+TG0D	sp78	GPU Die Analog temp (DegC) (TG0D)	D2,J15,J31,J45G,K91F,K92
+TG0D	sp78	GPU Die Digital Temp(TG0D)	K19,K19I,K20,m98,m98a
+TG0D	sp78	GPU 0 Die cooked temp (DegC) (TG0D)	D7,D8,J16G,J17
+TG0D	sp78	GPU Die Temp(TG0D)	m87,m88
+TG0D	sp78	Right Fin Stack Temp(TG0D)	K17,K18
+TG0D	sp78	GPU Die cooked temp (DegC) (TG0D)	J78,J78am
+TG0D	sp78	GPU analog die temp (DegC) (TG0D)	J40G
+TG0D	sp78	GPU A Die cooked temp (DegC) (TG0D)	J90
+TG0E	sp78	GPU 0 Die filtered temp for fan control (DegC) (TG0E)	D7,D8
+TG0E	sp78	GPU 0 Die filtered temp (DegC) (TG0E)	J16G,J17
+TG0E	sp78	GPU Die filtered temp (DegC) (TG0E)	J78,J78am
+TG0F	sp78	GPU 0 Die filtered and adjusted temp for power control (DegC) (TG0F)	D7,D8
+TG0F	sp78	GPU 0 Die filtered and adjusted temp for fan/power control (DegC) (TG0F)	J16G,J17
+TG0F	sp78	GPU Die filtered and adjusted temp for fan/power control (DegC) (TG0F)	J78,J78am
+TG0H	sp78	Heat Pipe Temp(TG0H)	K20,K24,K36b,M97,M97a,m98,m98a
+TG0H	sp78	NB Proximity Temp(TG0H)	m87,m88
+TG0J	sp78	GPU Die temp max error used in TG0F=TG0E+ (DegC) (TG0J)	J78,J78am
+TG0J	sp78	GPU 0 Die temp max error used in TG0F=TG0E+ (DegC) (TG0J)	J16G
+TG0L	ui16	GPU Die dynamic filter coeff (Seconds) (TG0L)	J78,J78am
+TG0L	ui16	GPU 0 Die dynamic filter coeff (Seconds) (TG0L)	J16G
+TG0M	sp78	GFX memory temp (DegC) (TG0M)	J40G
+TG0P	sp78	GPU Prox Temp(TG0P)	K19,K19I,K20,m87,m88,m98,m98a
+TG0P	sp78	GPU proximity temp (DegC) (TG0P)	D2,J15,J31,J40G,J45G,K91F,K92
+TG0P	sp78	Right Fin Stack Temp(TG0P)	K17,K18
+TG0P	sp78	GPU Proximity 0 (internal EMC1414) cooked temp (DegC) (TG0P)	J78,J78am
+TG0P	sp78	GPU A Proximity cooked temp (DegC) (TG0P)	J90
+TG0P	sp78	GPU 0 Proximity cooked temp (DegC) (TG0P)	J16G
+TG0T	sp78	GPU Die Analog Temp(TG0T)	K17,K18,K19,K19I,K20,m98,m98a
+TG0T	sp78	GPU Die temp Trend (DegC) (TG0T)	J78,J78am
+TG0T	sp78	GPU 0 Die temp Trend (DegC) (TG0T)	J16G
+TG0d	sp78	GPU Die raw temp (DegC) (TG0d)	J78,J78am
+TG0d	sp78	GPU 0 Die raw temp (DegC) (TG0d)	J16G
+TG0p	sp78	GPU 0 Proximity raw temp (DegC) (TG0p)	D7,D7I,D8,J16G,J17
+TG0p	sp78	GPU Proximity 0 (internal EMC1414) raw temp (DegC) (TG0p)	J78,J78am
+TG1D	sp78	GPU digital die temp (DegC) (TG1D)	J15,J30,J40G
+TG1D	sp78	GPU Die Digital temp (DegC) (TG1D)	K91F,K92
+TG1D	sp78	GPU B Die cooked temp (DegC) (TG1D)	J90
+TG1F	sp78	GPU digital die temp filtered (DegC) (TG1F)	J15
+TG1H	sp78	Heat Pipe Temp2(TG1H)	K20,m98,m98a
+TG1P	sp78	GPU GDDR5 Proximity 1 cooked temp (DegC) (TG1P)	J78,J78am
+TG1P	sp78	GPU A VRAM Proximity cooked temp (DegC) (TG1P)	J90
+TG1d	sp78	GPU digital die temp Raw (without offset) (DegC) (TG1d)	J15,J45G
+TG1p	sp78	GPU GDDR5 Proximity 1 raw temp (DegC) (TG1p)	J78,J78am
+TG2P	sp78	GPU VR Proximity 2 cooked temp (DegC) (TG2P)	J78,J78am
+TG2P	sp78	GPU A VR Proximity cooked temp (DegC) (TG2P)	J90
+TG2p	sp78	GPU VR Proximity 2 raw temp (DegC) (TG2p)	J78,J78am
+TG3P	sp78	GPU FB VR Proximity 3 (via diode connected to EMC1428) cooked temp (DegC) (TG3P)	J78,J78am
+TG3P	sp78	GPU B Proximity cooked temp (DegC) (TG3P)	J90
+TG3p	sp78	GPU FB VR Proximity 3 (via diode connected to EMC1428) raw temp (DegC) (TG3p)	J78,J78am
+TG4P	sp78	GPU B VRAM Proximity cooked temp (DegC) (TG4P)	J90
+TG5P	sp78	GPU B VR Proximity cooked temp (DegC) (TG5P)	J90
+TH0A	sp78	Drive 0 OOBv3 absolute cooked temp A (DegC) (TH0A)	J16G,J64,J70,J78,J78am
+TH0A	sp78	SSD Temp A (DegC) (TH0A)	D2,J15,J44,J53
+TH0A	sp78	SSD 0 OOB v3 absolute cooked temp A (DegC) (TH0A)	J50I,J50S
+TH0A	sp78	Drive 0 OOBv3 cooked temp A (DegC) (TH0A)	J52,J92
+TH0A	sp78	Drive OOBv3 absolute cooked temp A (DegC) (TH0A)	J90
+TH0B	sp78	Drive 0 OOBv3 absolute cooked temp B (DegC) (TH0B)	J16G,J64,J70,J78,J78am
+TH0B	sp78	SSD Temp B  (DegC) (TH0B)	D2,J15,J44,J53
+TH0B	sp78	SSD 0 OOB v3 absolute cooked temp B (DegC) (TH0B)	J50I,J50S
+TH0B	sp78	Drive 0 OOBv3 cooked temp B (DegC) (TH0B)	J52
+TH0B	sp78	Drive OOBv3 absolute cooked temp B (DegC) (TH0B)	J90
+TH0C	sp78	Drive 0 OOBv3 absolute cooked temp C (DegC) (TH0C)	J16G,J64,J70,J78,J78am
+TH0C	sp78	SSD 0 OOB v3 absolute cooked temp C (DegC) (TH0C)	J50I,J50S
+TH0C	sp78	Drive 0 OOBv3 cooked temp C (DegC) (TH0C)	J52
+TH0C	sp78	Drive OOBv3 absolute cooked temp C (DegC) (TH0C)	J90
+TH0F	sp78	Drive 0 OOBv3 relative filtered temp Max (DegC) (TH0F)	J16,J16G,J17,J52,J64,J70,J78,J78am,J92
+TH0F	sp78	Cooked and filtered SSD OOB temperature (SIT! force bit 7) (TH0F)	J30,K21,K78
+TH0F	sp78	SSD 0 (2.5) OOB v3 relative filtered temp Max (DegC) (TH0F)	D7,D7I,D8
+TH0F	sp78	Drive 0 OOBv3 relative cooked temp Max Filtered (DegC) (TH0F)	J53
+TH0F	sp78	Drive OOBv3 relative filtered temp Max (DegC) (TH0F)	J90
+TH0O	sp78	Drive 0 OOBv1 mapped temp (DegC) (TH0O)	J16,J16G,J17,J64,J70,J78,J78am
+TH0O	sp78	Drive 0 (2.5) OOB v1 mapped temp (DegC) (TH0O)	D7,D7I,D8
+TH0O	sp78	Hard Disk out-of-band virtual temperature (DegC) (TH0O)	K21,K78
+TH0O	sp78	Drive 0 OOB v1 mapped temp (DegC) (TH0O)	J50I,J50S
+TH0P	sp78	Drive 0 OOBv1 filtered temp (DegC) (TH0P)	J16,J16G,J17,J64,J70,J78,J78am
+TH0P	sp78	HDD proximity temp (DegC) (TH0P)	J40G,J40I,J40S
+TH0P	sp78	Drive 0 (2.5) OOB v1 filtered temp (DegC) (TH0P)	D7,D7I,D8
+TH0P	sp78	HDD Proximity Temp(TH0P)	K84,K87
+TH0R	sp78	Drive 0 OOBv3 relative cooked temp Max (DegC) (TH0R)	J16,J16G,J17,J45G,J52,J53,J64,J70,J78,J78am,J90,J92
+TH0R	sp78	SSD 0 (2.5) OOB v3 relative cooked temp Max (DegC) (TH0R)	D7,D7I,D8
+TH0V	sp78	SSD Temp B Foreign Drive Prediction   (DegC) (TH0V)	J15,J45,J45G,J53
+TH0V	sp78	Drive 0 backup virtual DRAM temp (DegC) (TH0V)	J52,J92
+TH0X	sp78	SSD 0 OOB v3 cooked temp Max (DegC) (TH0X)	J50I,J50S
+TH0a	sp78	Drive 0 OOBv3 absolute raw temp A (DegC) (TH0a)	J16,J16G,J17,J70,J78,J78am
+TH0a	sp78	Drive0 (SSD Gumstick) OOB v3 raw temp A (DegC) (TH0a)	J44,J45,J45G,J53
+TH0a	sp78	Drive 0 OOBv3 raw temp A (DegC) (TH0a)	J52,J64,J92
+TH0b	sp78	Drive 0 OOBv3 absolute raw temp B (DegC) (TH0b)	J16,J16G,J17,J70,J78,J78am
+TH0b	sp78	Drive0 (SSD Gumstick) OOB v3 raw temp B (DegC) (TH0b)	J44,J45,J45G,J53
+TH0b	sp78	Drive 0 OOBv3 raw temp B (DegC) (TH0b)	J52,J64
+TH0c	sp78	Drive 0 OOBv3 absolute raw temp C (DegC) (TH0c)	J16,J16G,J17,J70,J78,J78am
+TH0c	sp78	Drive0 (SSD Gumstick) OOB v3 raw temp C (DegC) (TH0c)	J44,J45,J45G,J53
+TH0c	sp78	Drive 0 OOBv3 raw temp C (DegC) (TH0c)	J52,J64
+TH0e	sp78	Drive 0 temp sensor existence used for TM0V (0) = present (TH0e)	J17,J78,J78am
+TH0o	ui16	Drive 0 OOBv1 raw bit-mapped temp (TH0o)	J16,J16G,J17,J64,J70,J78,J78am
+TH0o	ui16	Drive 0 (2.5) OOB v1 raw bit-mapped temp (TH0o)	D7,D7I,D8
+TH0x	sp78	Drive0 (SSD Gumstick) OOB v3 raw temp Max (DegC) (TH0x)	J44,J45,J53
+TH0x	sp78	Drive 0 OOBv3 temp Max  (DegC) (TH0x)	J52
+TH1A	sp78	Drive 1 OOBv3 absolute cooked temp A (DegC) (TH1A)	J16G,J64,J70,J78,J78am
+TH1A	sp78	SSD 1 OOB v3 absolute cooked temp A (DegC) (TH1A)	J50I,J50S
+TH1B	sp78	Drive 1 OOBv3 absolute cooked temp B (DegC) (TH1B)	J16G,J64,J70,J78,J78am
+TH1B	sp78	SSD 1 OOB v3 absolute cooked temp B (DegC) (TH1B)	J50I,J50S
+TH1C	sp78	Drive 1 OOBv3 absolute cooked temp C (DegC) (TH1C)	J16G,J64,J70,J78,J78am
+TH1C	sp78	SSD 1 OOB v3 absolute cooked temp C (DegC) (TH1C)	J50I,J50S
+TH1F	sp78	Drive 1 OOBv3 relative filtered temp Max (DegC) (TH1F)	J16,J16G,J17,J64,J70,J78,J78am
+TH1F	sp78	SSD 1 (Gumstick) OOB v3 relative filtered temp Max (DegC) (TH1F)	D7,D7I,D8
+TH1O	sp78	Drive 1 OOBv1 mapped temp (DegC) (TH1O)	J16,J16G,J64,J70,J78,J78am
+TH1O	sp78	Drive 1 (Gumstick) OOB v1 mapped temp (DegC) (TH1O)	D7,D7I,D8
+TH1O	sp78	Drive 1 OOB v1 mapped temp (DegC) (TH1O)	J50I,J50S
+TH1P	sp78	Drive 1 OOBv1 filtered temp (DegC) (TH1P)	J16,J16G,J17,J64,J70,J78,J78am
+TH1P	sp78	Drive 1 (Gumstick) OOB v1 filtered temp (DegC) (TH1P)	D7,D7I,D8
+TH1R	sp78	Drive 1 OOBv3 relative cooked temp Max (DegC) (TH1R)	J16,J16G,J17,J64,J70,J78,J78am
+TH1R	sp78	SSD 1 (Gumstick) OOB v3 relative cooked   temp Max (DegC) (TH1R)	D7,D7I,D8
+TH1X	sp78	SSD 1 OOB v3 cooked   temp Max (DegC) (TH1X)	J50I,J50S
+TH1a	sp78	Drive 1 OOBv3 absolute raw temp A (DegC) (TH1a)	J16,J16G,J17,J70,J78,J78am
+TH1a	sp78	Drive 1 OOBv3 raw temp A (DegC) (TH1a)	J64
+TH1b	sp78	Drive 1 OOBv3 absolute raw temp B (DegC) (TH1b)	J16,J16G,J17,J70,J78,J78am
+TH1b	sp78	Drive 1 OOBv3 raw temp B (DegC) (TH1b)	J64
+TH1c	sp78	Drive 1 OOBv3 absolute raw temp C (DegC) (TH1c)	J16,J16G,J17,J70,J78,J78am
+TH1c	sp78	Drive 1 OOBv3 raw temp C (DegC) (TH1c)	J64
+TH1o	ui16	Drive 1 OOBv1 raw bit-mapped temp (TH1o)	J16,J16G,J17,J70,J78,J78am
+TH1o	ui16	Drive 1 (2.5) OOB v1 raw bit-mapped temp (TH1o)	D7,D7I,D8
+TH1o	ui16	Drive 0 OOBv1 raw bit-mapped temp (TH1o)	J64
+THFH	sp78	Fin Stack Temp(THFH)	K24,K36b,M97,M97a
+THSP	sp78	T29 proximity temp (DegC) (THSP)	J11,J13,J41,J43,K21,K78,K92
+THSP	sp78	Thunderbolt Die temp (DegC) (THSP)	J44,J52
+THSP	sp78	T29 Proxmity temp (DegC) (THSP)	K91F
+TI0P	sp78	High Speed I/O proximity 0 temp (DegC) (TI0P)	J40G,J40I,J40S,J50I,J50S
+TI0P	sp78	I/O Board Proximity cooked temp (DegC) (TI0P)	J90
+TI0T	sp78	Thunderbolt Proximity cooked temp (DegC) (TI0T)	J90
+TI0p	sp78	TBT Proximity raw temp (DegC) (TI0p)	J70
+TI1P	sp78	High Speed I/O proximity 1 temp (DegC) (TI1P)	J40I,J40S,J50I,J50S
+TI1P	sp78	5V/3V3 VR Proximity cooked temp (DegC) (TI1P)	J90
+TL0P	sp78	LCD unfiltered front-of-screen cooked temp (DegC) (TL0P)	D7,D7I,D8,J16G,J70,J78,J78am
+TL0V	sp78	LCD filtered right front-of-screen virtual temp (DegC) (TL0V)	D7,D7I,D8
+TL0V	sp78	LCD filtered front-of-screen hotspot virtual temp (DegC) (TL0V)	J17,J78,J78am
+TL0p	sp78	LCD unfiltered front-of-screen raw temp (DegC) (TL0p)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TL1P	sp78	LCD TCON Proximity cooked temp (DegC) (TL1P)	J16G,J70,J78,J78am
+TL1V	sp78	LCD TL1v-filtered center front-of-screen temp for color compensation (DegC) (TL1V)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TL1p	sp78	LCD TCON Proximity raw temp (DegC) (TL1p)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TL1v	sp78	LCD filtered center front-of-screen temp that feeds TL1V (DegC) (TL1v)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TL2p	sp78	LCD IR target hotspot raw temp (DegC) (TL2p)	D7,D7I,D8
+TL2p	sp87	LCD IR target hotspot calculated temp (DegC) (TL2p)	J16,J16G,J17
+TL3p	spa5	LCD IR temp sensor die raw temp (DegC) (TL3p)	D7,D7I,D8,J16,J16G,J17
+TM0D	sp78	DIMM 0 PECI cooked temp (DegC) (TM0D)	J90
+TM0P	sp78	Dimm Proximity temp(DegC) (TM0P)	D2,J15,J44,J45,J45G,J52,J53
+TM0P	sp78	Memory proximity (DegC) (TM0P)	J11,J13,J41,J43,J92,K21,K78
+TM0P	sp78	Memory proximity temp (filtered) (DegC) (TM0P)	J40G,J40I,J40S,J50I,J50S
+TM0P	sp78	DIMM 0 Proximity cooked temp (DegC) (TM0P)	J16G,J70,J78,J78am
+TM0P	sp78	SSD proximity temp (SIU! force bit 0) (DegC) (TM0P)	K16,K99
+TM0P	sp78	Dimm Proximity temp(DegC) (SIS! force bit 1) (TM0P)	J30,J31
+TM0P	sp78	LPDDR proximity temp (filtered) (DegC) (TM0P)	J64
+TM0P	sp78	Dimm Proximity temp(DegC) () (TM0P)	D1
+TM0P	sp78	DIMM 0/1 Top Proximity cooked temp (DegC) (TM0P)	J90
+TM0S	sp78	Synthetic DIMM Estimate(DegC) (TM0S)	D2,J15,J45,J45G,J53
+TM0S	sp78	Synthetic DIMM Estimate(DegC) (SIS! force bit 1) (TM0S)	J30,J50I,J50S
+TM0S	sp78	Synthetic DIMM Estimate(DegC) () (TM0S)	D1
+TM0V	sp78	DIMM virtual temp (DegC) (TM0V)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TM0V	sp78	Synthetic DIMM Estimate(DegC) (TM0V)	J64
+TM0p	sp78	DIMM 0 Proximity raw temp (DegC) (TM0p)	J16,J16G,J17,J70,J78,J78am
+TM0p	sp78	LPDDR proximity raw temp (DegC) (TM0p)	J64
+TM1D	sp78	DIMM 1 PECI cooked temp (DegC) (TM1D)	J90
+TM1P	sp78	DIMM 1 Proximity cooked temp (DegC) (TM1P)	J78,J78am
+TM1P	sp78	DIMM 2/3 Top Proximity cooked temp (DegC) (TM1P)	J90
+TM1a	sp78	DIMM virtual temp for 2x DIMM Slot1+2+3+4 config (DegC) (TM1a)	J78,J78am
+TM1p	sp78	DIMM 1 Proximity raw temp (DegC) (TM1p)	J17,J78,J78am
+TM2D	sp78	DIMM 2 PECI cooked temp (DegC) (TM2D)	J90
+TM2P	sp78	DIMM 2 Proximity cooked temp (DegC) (TM2P)	J78,J78am
+TM2P	sp78	DIMM 0/1 VR Proximity cooked temp (DegC) (TM2P)	J90
+TM2a	sp78	DIMM virtual temp for 2x DIMM Slot1+3 config (DegC) (TM2a)	J78,J78am
+TM2b	sp78	DIMM virtual temp for 2x DIMM Slot1+2 or Slot2+3 config (DegC) (TM2b)	J78,J78am
+TM2c	sp78	DIMM virtual temp for 2x DIMM Slot1+4 or Slot2+4 config (DegC) (TM2c)	J78,J78am
+TM2d	sp78	DIMM virtual temp for 2x DIMM Slot3+4 config (DegC) (TM2d)	J78,J78am
+TM2p	sp78	DIMM 2 Proximity raw temp (DegC) (TM2p)	J17,J78,J78am
+TM3D	sp78	DIMM 3 PECI cooked temp (DegC) (TM3D)	J90
+TM3P	sp78	DIMM 3 Proximity cooked temp (DegC) (TM3P)	J78,J78am
+TM3P	sp78	DIMM 2/3 VR Proximity cooked temp (DegC) (TM3P)	J90
+TM3a	sp78	DIMM virtual temp for 3x DIMM Slot2+3+4 config (DegC) (TM3a)	J78,J78am
+TM3b	sp78	DIMM virtual temp for 3x DIMM Slot1+3+4 config (DegC) (TM3b)	J78,J78am
+TM3c	sp78	DIMM virtual temp for 3x DIMM Slot1+2+4 config (DegC) (TM3c)	J78,J78am
+TM3d	sp78	DIMM virtual temp for 3x DIMM Slot1+2+3 config (DegC) (TM3d)	J78,J78am
+TM3p	sp78	DIMM 3 Proximity raw temp (DegC) (TM3p)	J17,J78,J78am
+TM4a	sp78	DIMM virtual temp for 4x DIMM Slot1+2+3+4 config (DegC) (TM4a)	J78,J78am
+TMBS	sp78	DIMM Bandwidth Estimate (DegC) (TMBS)	D1,D2,J15,J45,J45G
+TMBS	sp78	DIMM Bandwidth Estimate (DegC) (SIS! force bit 1) (TMBS)	J30,J50I,J50S
+TMCD	sp78	Memory Controller/Integrated Graphics PECI Temp(TMCD)	K17,K18
+TMLB	sp78	Dimm Proximity temp(DegC) (TMLB)	J44
+TMLB	sp78	MLB Proximity temp(DegC) (TMLB)	J52
+TMXD	sp78	DIMM max cooked temp (DegC) (TMXD)	J90
+TMXP	sp78	DIMM Proximity max cooked temp (DegC) (TMXP)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am,J90
+TN0D	sp78	MCP Die Temp(TN0D)	K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m98,m98a
+TN0D	sp78	MCP die temp (TN0D)	K19,K19I,M96
+TN0D	sp78	MCP89 Die temp (SIT! force bit 11) (DegC) (TN0D)	K16,K99
+TN0P	sp78	MCP Prox Temp(TN0P)	K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m98,m98a
+TN0P	sp78	MCP prox temp (TN0P)	K19,K19I
+TN0P	sp78	MCP89 Die temp (SIT! force bit 12) (DegC) (TN0P)	K16,K99
+TN1D	sp78	MCP Die2 Temp(TN1D)	K84,K87
+TN1D	sp78	MCP internal die temp (SIU! force bit 1) (DegC) (TN1D)	K16,K99
+TP0P	sp78	PCH Proxmity temp (DegC) (TP0P)	D2,J15,J31,J45,J45G,J53,K91F
+TP0P	sp78	PCH proximity temp (DegC) (TP0P)	J40G,J40I,J40S,J50I,J50S,K90I
+TP0P	sp78	PCH Prox Temp(TP0P)	K17
+TP0P	sp78	PCH Proximity temp (DegC) (TP0P)	K92
+TPCD	sp78	PCH Die temp (DegC) (TPCD)	D1,D2,J11,J13,J15,J30,J41,J43,J44,J45G,J53,J92,K92
+TPCD	sp78	PCH Die cooked temp (DegC) (TPCD)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am,J90
+TPCD	sp78	PCH digital die temp (DegC) (TPCD)	J40G,J40I,J40S,J50I,J50S,J64
+TPCD	sp78	PCH Die Temp(TPCD)	K17,K18
+TPCD	sp78	PCH Die temp (DegC) (SIS! force bit 6) (TPCD)	J31,K91F
+TPCD	sp78	PCH digital die temp (DegC) (SIS! force bit ) (TPCD)	K90I
+TPCD	sp78	PCH Die Temp Digital (DegC) (TPCD)	J52
+TPCd	sp78	PCH digital die raw temp (DegC) (TPCd)	J64
+TS0D	sp78	Speaker Remote Temp (DegC) (TS0D)	D2
+TS0P	sp78	Speaker Proximity Temp (DegC) (TS0P)	D2
+TS0V	sp78	Skin 0 virtual temp (DegC) (TS0V)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TS0V	sp78	Synthetic bottom skin (DegC) (TS0V)	J64
+TS0p	sp78	Skin 0 raw temp (DegC) (TS0p)	D7,D7I,D8,J17
+TS1D	sp78	Speaker Remote 2 Temp (DegC) (TS1D)	D2
+TS1P	sp78	Speaker Proximity 2 Temp (DegC) (TS1P)	D2
+TS2P	sp78	S2 camera proximity temp (DegC) (TS2P)	J41,J43
+TTF0	sp78	Fan Target Temp(TTF0)	K19,K19I,K20,K24,K36b,M97,M97a,m87,m88,m98,m98a
+TV0P	sp78	Vent proximity temp (TV0P)	M96
+TVFP	sp78	Filtered Vent proximity (TVFP)	M96
+TW0P	sp78	Airport Temp (DegC) (TW0P)	D2,J15,J30,J44,J45,J45G,J52,J53,K90I,K91F
+TW0P	sp78	Airport Card temp (DegC) (TW0P)	J40G,J40I,J40S,J50I,J50S
+TW0P	sp78	Wireless proximity (DegC) (TW0P)	J41,J43,J92
+TW0P	sp78	Airport Temp (TW0P)	m87,m88
+TW0P	sp78	Wireless card temp (TW0P)	M96
+TW0P	sp78	Wireless card temp (DegC) (TW0P)	K92
+TW0P	sp78	Wifi proximity temp (DegC) (TW0P)	J64
+TW0p	sp78	Wifi proximity raw temp (DegC) (TW0p)	J64
+Ta0P	sp78	air flow temp (DegC) (Ta0P)	J11,J13,J41,J43,K21,K78
+Ta0P	sp78	DCIn Air flow Temperature (DegC) (Ta0P)	D2,J15,J45,J45G,J53
+TaSP	sp78	DCIn Air flow Adjusted Temperature (DegC) (TaSP)	J15,J53
+Tb0P	sp78	Backlight Controller proximity cooked temp (DegC) (Tb0P)	J16G,J78,J78am
+Tb0p	sp78	Backlight Controller proximity raw temp (DegC) (Tb0p)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+Te0T	sp78	TBT Thermal Diode temp (DegC) (Te0T)	J64
+Te0T	sp78	Te0T	J90
+Te0t	sp78	TBT Thermal Diode raw temp (DegC) (Te0t)	J64
+Th0N	sp78	Nand temp  (DegC) (Th0N)	J92
+Th0P	sp78	Heat Spreader proximity temp (Th0P) 	M96
+Th0R	sp78	RIO temp  (DegC) (Th0R)	J92
+Th1H	sp78	Right Fin stack temp (DegC) (Th1H)	D1,D2,J15,J31,J45,J45G,J53,K91F,K92
+Th1H	sp78	Fin Stack Temp(Th1H)	K19,K19I,K6,K69,K84,K87,m87,m88
+Th1H	sp78	Fin stack temp (DegC) (Th1H)	J11,J13,J30,J41,J43,K21,K78,K90I
+Th1H	sp78	Right Fin Stack Temp(Th1H)	K17,K18
+Th1H	sp78	Finstack proximity temp (SIT! force bit 14) (DegC) (Th1H)	K16,K99
+Th1H	sp78	Fin Stack Proximity temp (DegC) (Th1H)	J44,J52
+Th2H	sp78	Left Fin stack temp (DegC) (Th2H)	D1,D2,J15,J31,J45,J45G,J53,K91F,K92
+Th2H	sp78	Heat Pipe Temp(Th2H)	K19,K19I,m87,m88
+Th2H	sp78	Fin Stack Temp(Th2H)	K20,m98,m98a
+Th2H	sp78	Left Fin Stack Temp(Th2H)	K17,K18
+Tm0P	sp78	MLB top side temp  (DegC) (Tm0P)	J11,J13,J41,J43,K21,K78
+Tm0P	sp78	Charger Prox Temp(Tm0P)	K19,K19I,m87,m88
+Tm0P	sp78	Batt Charger Prox Temp(Tm0P)	K20,m98,m98a
+Tm0P	sp78	Battery Charger Prox Temp(Tm0P)	K17,K18
+Tm0P	sp78	MLB Proximity 0 cooked temp: MLB top near power connector (DegC) (Tm0P)	J78,J78am
+Tm0P	sp78	Battery Charge Proximity temp (DegC) (Tm0P)	K91F
+Tm0P	sp78	EMC1428 internal diode temp (DegC) (Tm0P)	J64
+Tm0P	sp78	MLB Proximity 0 cooked temp (DegC) (Tm0P)	J90
+Tm0P	sp78	MLB Proximity 0 cooked temp: MLB bottom near memory (DegC) (Tm0P)	J16G
+Tm0p	sp78	MLB Proximity 0 raw temp (DegC) (Tm0p)	D7,D7I,D8,J17
+Tm0p	sp78	MLB Proximity 0 raw    temp: MLB top near power connector (DegC) (Tm0p)	J78,J78am
+Tm0p	sp78	EMC1428 internal diode raw temp (DegC) (Tm0p)	J64
+Tm0p	sp78	MLB Proximity 0 raw    temp (Tm0p)	J16
+Tm0p	sp78	MLB Proximity 0 raw    temp: MLB bottom near memory (DegC) (Tm0p)	J16G
+Tm0p	sp78	MLB Proximity 0 raw    temp: MLB top near CPU (DegC) (Tm0p)	J70
+Tm1P	sp78	MLB bottom side temp  (DegC) (Tm1P)	J11,J13,K21,K78
+Tm1P	sp78	MLB Proximity 1 cooked temp: MLB top near GPU (DegC) (Tm1P)	J16G,J78,J78am
+Tm1p	sp78	MLB Proximity 1 raw    temp: MLB top near GPU (DegC) (Tm1p)	J16G,J78,J78am
+Tm1p	sp78	MLB Proximity 1 raw temp (DegC) (Tm1p)	D8,J17
+Tm1p	sp78	MLB Proximity 1 raw    temp (Tm1p)	J16
+Tm2P	sp78	MLB Proximity 2 cooked temp: MLB bottom near CPU (DegC) (Tm2P)	J78,J78am
+Tm2P	sp78	MLB Proximity 2 cooked temp: MLB bottom near memory VR (DegC) (Tm2P)	J16G
+Tm2p	sp78	MLB Proximity 2 raw    temp: MLB bottom near CPU (DegC) (Tm2p)	J78,J78am
+Tm2p	sp78	MLB Proximity 2 raw    temp (Tm2p)	J16
+Tm2p	sp78	MLB Proximity 2 raw    temp: MLB bottom near memory VR (DegC) (Tm2p)	J16G
+Tm2p	sp78	MLB Proximity 2 raw    temp: MLB bottom near CPU VR (DegC) (Tm2p)	J70
+Tp0P	sp78	MLB temp (SIT! force bit 15) (DegC) (Tp0P)	K16,K99
+Tp0P	sp78	Power supply proximity temp (Tp0P)	M96
+Tp0T	sp78	PSU Secondary H/S Diode cooked temp (DegC) (Tp0T)	J90
+Tp1P	sp78	Secondary power supply proximity (Tp1P)	M96
+Tp2F	sp78	Power Supply T2 Secondary Heatsink filtered temp (DegC) (Tp2F)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+Tp2H	sp78	Power Supply T2 Secondary Heatsink cooked temp (DegC) (Tp2H)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+Tp2h	sp78	Power Supply T2 Secondary Heatsink raw temp (DegC) (Tp2h)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am
+TpFP	sp78	Filtered Power supply 1 proximity (TpFP)	M96
+Ts0P	sp78	Palm Rest Temp(Ts0P)	K17,K18,K19,K19I,K20,K24,K36b,K6,K69,K84,K87,M97,M97a,m87,m88,m98,m98a
+Ts0P	sp78	Palm Rest Temp (DegC) (Ts0P)	D1,D2,J11,J13,J15,J30,J31,J44,J45,J45G,J52,J53,K21,K78,K91F,K92
+Ts0P	sp78	Trackpad Temp (DegC) (Ts0P)	J41,J43,J92
+Ts0P	sp78	Palm rest skin temp (SIT! force bit 13) (DegC) (Ts0P)	K16,K99
+Ts0P	sp78	Palm rest skin temp (Ts0P)	M96
+Ts0P	sp78	Trackpad (DegC) (Ts0P)	K90I
+Ts0S	sp78	Synthetic bottom skin (DegC) (Ts0S)	D1,D2,J11,J13,J15,J30,J31,J41,J43,J44,J45,J45G,J50I,J50S,J52,J53,J92,K21,K78,K90I,K91F,K92
+Ts0S	sp78	Bottom Case Synthetic Temp(Ts0S)	K24,K36b,K6,K69,K84,K87,M97,M97a
+Ts0S	sp78	Heat Pipe Synthetic Temp(Ts0S)	K17,K18,K19,K19I
+Ts0S	sp78	Heat Pipe Syth Temp(Ts0S)	K20,m98,m98a
+Ts0S	sp78	Synthetic, bottom case, skin temp (Ts0S)	M96
+Ts1P	sp78	Palm Rest Temp 2 (DegC) (Ts1P)	J53
+Ts1P	sp78	Actuator Temp (DegC) (Ts1P)	J92
+Ts1S	sp78	Synthetic Top skin (DegC) (Ts1S)	D2,J15,J45,J45G,J53
+Ts1S	sp78	Synthetic top skin (DegC) (Ts1S)	J52
+V50R	sp3c	5V lowside voltage (Volts) (V50R)	J64
+VACC	sp5a	ACC voltage. (Volts) (VACC)	J92
+VAPC	sp5a	Wireless Voltage (Volts) (VAPC)	J41,J43
+VAPC	sp5a	Airport  Voltage (DEBUG) (Volts) (VAPC)	K92
+VBLC	sp69	Backlight Output Voltage.  (Volts) (VBLC)	D2
+VBLC	sp69	Backlight Output Boosted Voltage.  (Volts) (VBLC)	J15
+VBLC	sp69	Backlight Output Voltage. (DEBUG) (Volts) (VBLC)	K91F
+VBLC	sp69	Backlight  Voltage (DEBUG) (Volts) (VBLC)	K92
+VBLC	sp78	Backlight. (Volts) (VBLC)	D1
+VC0C	sp2d	CPU Core load-side voltage (Volts) (VC0C)	J16,J16G,J17,J70,J78,J78am
+VC0C	sp5a	CPU Core voltage. (Volts) (VC0C)	D1,J11,J13,J30,J31
+VC0C	sp5a	CPU Core Voltage (Volts) (VC0C)	K21,K78,K92
+VC0C	sp1e	CPU Vcore voltage. (SPS! force bit 1) (Volts) (VC0C)	J40G,J40I,J40S
+VC0C	sp2d	CPU Core low-side voltage (Volts) (VC0C)	D7,D7I,D8
+VC0C	sp1e	CPU Core voltage. (Volts) (VC0C)	D2,K91F
+VC0C	sp2d	CPU Package Core voltage. (Volts) (VC0C)	J15,J45G
+VC0C	sp2d	CPU Package Core Voltage. (Volts) (VC0C)	J45,J53
+VC0C	sp2d	CPU Vcore voltage (Volts) (VC0C)	J50I,J50S
+VC0C	sp3c	CPU Core Voltage. (Volts) (VC0C)	J44,J52
+VC0C	sp3c	CPU Core Voltage (Volts) (VC0C)	K90I
+VC0C	sp2d	CPU core lowside voltage (Volts) . (VC0C)	J64
+VC0C	sp1e	CPU Core low side voltage (Volts) (VC0C)	J90
+VC0G	sp2d	CPU AXG  low-side voltage (Volts) (VC0G)	D7,D7I,D8
+VC0M	sp2d	CPU Mem  load-side voltage (Volts) (VC0M)	J16,J16G,J17,J78,J78am
+VC0M	sp2d	CPU Mem  low-side voltage (Volts) (VC0M)	D8
+VC0S	sp1e	CPU VSA low side voltage (Volts) (VC0S)	J90
+VC1C	sp5a	1.05 S0 voltage. (Volts) (VC1C)	J41,J43
+VC1C	sp2d	1.05V to CPU/PCH lowside voltage (Volts) . (VC1C)	J64
+VC1R	sp5a	CPU High Side Voltage from EMC1704 (Volts) (VC1R)	K21,K78
+VC2C	sp0f	CPU VCCSA voltage. (SPS! force bit 1) (Volts) (VC2C)	J40G,J40I,J40S
+VC2C	sp5a	VCCSA voltage. (Volts) (VC2C)	J11,J13,J31
+VC2C	sp2d	CPU VCCSA voltage (Volts) (VC2C)	J50I,J50S
+VC2C	sp2d	CPU VCCSA Voltage. (Volts) (VC2C)	D1
+VCFR	sp5a	FIVR CPU supply voltage. (Volts) (VCFR)	J92
+VCRC	sp5a	CPU Ripple voltage. (DEBUG) (Volts) (VCRC)	J31
+VCRP	sp78	CPU Ripple voltage. (DEBUG) (Volts) (VCRP)	D2
+VCRP	sp5a	CPU Ripple Voltage (DEBUG) (Volts) (VCRP)	K91F
+VCRP	sp5a	CPU Ripple (Volts) (VCRP)	K92
+VCS0	sp5a	CPU Core voltage. (Volts) (VCS0)	J41,J43
+VD0R	sp5a	DC In voltage. (Volts) (VD0R)	D2,J11,J13,J15,J30,J31,J41,J43,J45G,J92,K91F
+VD0R	sp5a	DC In Voltage. (Volts) (VD0R)	J44,J45,J52,J53
+VD0R	sp5a	Adapter Voltage (Volts) (VD0R)	K21,K78,K90I,K92
+VD0R	sp4b	DC In voltage. (SPS! force bit 4) (Volts) (VD0R)	J40G,J40I,J40S
+VD0R	sp5a	DC In Voltage (SPS! force bit 16) (Volts) (VD0R)	K16,K99
+VD0R	sp5a	DC In voltage (Volts) (VD0R)	J50I,J50S
+VD0R	sp5a	DCIN voltage (Volts) . (VD0R)	J64
+VD0R	sp69	DC In voltage. (Volts) (VD0R)	D1
+VD2R	sp4b	Power Supply 12V voltage (Volts) (VD2R)	D7,D7I,D8,J16,J16G,J17,J70,J78,J78am,J90
+VG0C	sp1e	Ext GPU Core voltage. (Volts) (VG0C)	D2,J15,J45G,K91F
+VG0C	sp2d	GPU Core  load-side voltage (Volts) (VG0C)	J16G,J17,J78,J78am
+VG0C	sp5a	GPU Core Voltage (Volts) (VG0C)	K92
+VG0C	sp1e	GPU Vcore voltage. (SPS! force bit 8) (Volts) (VG0C)	J40G
+VG0C	sp5a	Ext GPU Core voltage. (Volts) (VG0C)	J31
+VG0C	sp4b	GPU Core   high-side voltage (Volts) (VG0C)	D7
+VG0C	sp2d	GPU Core low-side voltage (Volts) (VG0C)	D8
+VG0C	sp1e	GPU A Core low side voltage (Volts) (VG0C)	J90
+VG0F	sp4b	GPU Frame Buffer input-side voltage (Volts) (VG0F)	J16G,J17
+VG0I	sp2d	GPU VDDCI load-side voltage (Volts) (VG0I)	J78,J78am
+VG0S	sp1e	GPU A VDDCI low side voltage (Volts) (VG0S)	J90
+VG0U	sp4b	GPU Uncore high-side voltage (Volts) (VG0U)	D7
+VG1C	sp4b	GPU Core input-side voltage (Volts) (VG1C)	J16G,J17,J78,J78am
+VG1C	sp2d	Ext GPU Frame Buffer Voltage. (Volts) (VG1C)	J15,J45G
+VG1C	sp1e	GPU B Core low side voltage (Volts) (VG1C)	J90
+VG1F	sp4b	GPU Frame Buffer input-side voltage (Volts) (VG1F)	J78,J78am
+VG1S	sp1e	GPU B VDDCI low side voltage (Volts) (VG1S)	J90
+VH05	sp3c	Drive 0 5V load-side voltage (Volts) (VH05)	J16,J16G,J17,J78,J78am
+VH05	sp3c	HDD   5V low-side voltage (Volts) (VH05)	D7,D7I
+VH05	sp3c	HDD 5V   low-side voltage (Volts) (VH05)	D8
+VH0R	sp2d	SSD 3V3 low side voltage (Volts) (VH0R)	J90
+VH1R	sp3c	SSD 3.3V low-side voltage (Volts) (VH1R)	D7,D7I
+VL3t	si16	LCD IR temp sensor voltage (Raw Register) (VL3t)	D7,D7I,J16,J16G,J17
+VL3t	ui16	LCD IR temp sensor voltage (Raw Register) (VL3t)	D8
+VM0C	sp2d	1.2V to CPU/MEM lowside voltage (Volts) . (VM0C)	J64
+VM0R	sp2d	DIMM load-side voltage (Volts) (VM0R)	J16,J16G,J17,J70,J78,J78am
+VM0R	sp2d	DIMM low-side voltage (Volts) (VM0R)	D7,D7I,D8
+VM1C	sp2d	1.8V S3 lowside voltage (Volts) . (VM1C)	J64
+VN0C	sp5a	Int GPU core voltage. (Volts) (VN0C)	D1,J11,J13,J30,J31
+VN0C	sp5a	GFX Voltage (Volts) (VN0C)	K21,K78,K92
+VN0C	sp1e	MCP Core Voltage (SPS! force bit 2) (Volts) (VN0C)	K16,K99
+VN0C	sp1e	NB Int GPU voltage. (Volts) (VN0C)	D2
+VN0R	sp1e	GFX Vcore voltage. (SPS! force bit 8) (Volts) (VN0R)	J40G,J40I,J40S
+VN0R	sp2d	GFX Vcore voltage (Volts) (VN0R)	J50I,J50S
+VN0R	sp1e	NB Int GPU voltage. (Volts) (VN0R)	K91F
+VN0R	sp3c	AGX Core Voltage (Volts) (VN0R)	K90I
+VN1C	sp5a	MCP Memory Voltage (SPS! force bit 15) (Volts) (VN1C)	K16,K99
+VN1R	sp2d	PCH low-side voltage (Volts) (VN1R)	D8
+VODC	sp5a	ODD  Voltage (DEBUG) (Volts) (VODC)	K92
+VP0R	sp5a	PBus rail voltage. (Volts) (VP0R)	D1,J11,J13,J30,J31,J41,J43,J92
+VP0R	sp4b	PBus rail voltage. (Volts) (VP0R)	D2,J15,J45G,K91F
+VP0R	sp5a	PBus Voltage  (Volts) (VP0R)	K21,K78,K92
+VP0R	sp4b	PBus rail Voltage. (Volts) (VP0R)	J45,J53
+VP0R	sp4b	PBus Voltage (SPS! force bit 4) (Volts) (VP0R)	K16,K99
+VP0R	sp5a	PBus rail Voltage. (Volts) (VP0R)	J44,J52
+VP0R	sp4b	PBus Voltage  (Volts) (VP0R)	K90I
+VP0T	sp2d	PSU cooked temperature represented as a voltage (Volts) (VP0T)	J64
+VR1R	sp2d	PCH/GPU/TBT load-side voltage (Volts) (VR1R)	J16,J16G,J17,J78,J78am
+VR3R	sp3c	3.3V S5 load-side voltage (Volts) (VR3R)	J16,J16G,J17
+VR3R	sp3c	3.3V load-side voltage (Volts) (VR3R)	J70,J78,J78am
+VR3R	sp3c	3.3V S0 rail voltage (Volts) (VR3R)	D8
+VSDC	sp5a	SD Card Voltage (Volts) (VSDC)	J41,J43
+VTPC	sp69	T101 Boost/PBus Accuator Voltage. (Volts) (VTPC)	J45
+VTPC	sp69	T101 Accuator Voltage. (Volts) (VTPC)	J53
+VTPC	sp5a	T101 Boost/PBus Accuator Voltage. (Volts) (VTPC)	J44
+VTPC	sp5a	T101 Accuator Voltage. (Volts) (VTPC)	J52
+VZAP	sp78	Airport Voltage(VZAP)	K69,K84,K87
+VZAP	sp5a	WIFI Voltage (SPS! force bit 17) (Volts) (VZAP)	K16,K99
+VZBL	sp78	Backlight Voltage(VZBL)	K69,K84,K87
+VZDM	sp5a	Memory Voltage (SPS! force bit 19) (Volts) (VZDM)	K16,K99
+VZHD	sp5a	SSD Voltage (SPS! force bit 18) (Volts) (VZHD)	K16,K99
+VZOD	sp78	ODD Voltage(VZOD)	K69,K84,K87
+Vp0C	sp2d	ACDC cooked temp (Volts) (Vp0C)	J40G,J40I,J40S,J50I,J50S
