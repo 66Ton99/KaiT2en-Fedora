@@ -18,7 +18,7 @@ use std::{
     time::Duration,
 };
 
-use config::{curve, normalize_curve, resize_soak, AppConfig, CurvePoint, MAX_SOAK_TEMP_C};
+use config::{curve, curve_percent, normalize_curve, resize_soak, speed_range, AppConfig, CurvePoint, MAX_SOAK_TEMP_C};
 use control::{ControlSnapshot, Controller};
 use adw::StyleManager;
 use gtk4::{
@@ -243,19 +243,25 @@ impl AppModel {
     }
 
     fn update_curve_point(&mut self, index: usize, x: f64, y: f64, width: f64, height: f64) {
-        let left_bound = if index == 0 { 0 } else { self.config.custom_curve[index - 1].temp_c + 1 };
-        let right_bound = if index < 3 { self.config.custom_curve[index + 1].temp_c.saturating_sub(1) } else { MAX_SOAK_TEMP_C };
-        if let Some(point) = self.config.custom_curve.get_mut(index) {
-            let plot = plot_rect(width, height);
-            let (temp_c, speed_percent) = pos_to_curve_values(plot, x, y);
-            point.temp_c = temp_c.clamp(left_bound, right_bound);
-            point.speed_percent = speed_percent;
-            normalize_curve(&mut self.config.custom_curve);
-            self.send_request(
-                Request::SetCurve(self.config.soak_temp_c, self.config.custom_curve.clone()),
-                String::from("Updating custom curve failed"),
-            );
+        let (temp_c, speed_percent) = pos_to_curve_values(plot_rect(width, height), x, y);
+        let curve = &mut self.config.custom_curve;
+        if index == 1 {
+            curve[1] = CurvePoint { temp_c, speed_percent };
+        } else {
+            let (handle_u, handle_v) = handle_relative(curve);
+            curve[index] = CurvePoint { temp_c, speed_percent };
+            if index == 0 {
+                curve[0].temp_c = curve[0].temp_c.min(curve[2].temp_c.saturating_sub(2));
+            } else {
+                curve[2].temp_c = curve[2].temp_c.max(curve[0].temp_c + 2);
+            }
+            curve[1] = handle_absolute(curve, handle_u, handle_v);
         }
+        normalize_curve(curve);
+        self.send_request(
+            Request::SetCurve(self.config.soak_temp_c, self.config.custom_curve.clone()),
+            String::from("Updating custom curve failed"),
+        );
     }
 
     fn update_soak(&mut self, x: f64, width: f64, height: f64) {
@@ -1411,7 +1417,7 @@ fn draw_curve_panel(model: &AppModel, cr: &cairo::Context, width: f64, height: f
     draw_wall_temperature(cr, plot, wall_x, model.config.soak_temp_c);
     draw_curve_line(cr, plot, &curve, palette.curve, 2.2);
 
-    for point in &curve {
+    for (index, point) in curve.iter().enumerate() {
         let (x, y) = curve_to_pos(plot, point);
         cr.set_source_rgba(0.95, 0.98, 1.0, 0.14);
         cr.arc(x, y, 7.5, 0.0, std::f64::consts::TAU);
@@ -1421,7 +1427,12 @@ fn draw_curve_panel(model: &AppModel, cr: &cairo::Context, width: f64, height: f
         let _ = cr.fill();
         set_color(cr, palette.curve);
         cr.arc(x, y, 3.0, 0.0, std::f64::consts::TAU);
-        let _ = cr.fill();
+        if index == 1 {
+            cr.set_line_width(1.5);
+            let _ = cr.stroke();
+        } else {
+            let _ = cr.fill();
+        }
     }
 
     draw_live_marker(
@@ -1615,24 +1626,47 @@ fn draw_curve_line(
     color: (f64, f64, f64),
     line_width: f64,
 ) {
-    if curve.is_empty() {
+    let (Some(first), Some(last)) = (curve.first(), curve.last()) else {
         return;
-    }
+    };
     set_color(cr, color);
     cr.set_line_width(line_width);
-    for (index, point) in curve.iter().enumerate() {
-        let (x, y) = curve_to_pos(plot, point);
-        if index == 0 {
+    let (start_x, _) = curve_to_pos(plot, first);
+    let (end_x, _) = curve_to_pos(plot, last);
+    let steps = (end_x - start_x).ceil().max(1.0) as usize;
+    for step in 0..=steps {
+        let x = start_x + (end_x - start_x) * step as f64 / steps as f64;
+        let temp = remap(x, plot.0, plot.0 + plot.2, 0.0, MAX_SOAK_TEMP_C as f64);
+        let y = remap(curve_percent(curve, temp), 0.0, 100.0, plot.1 + plot.3, plot.1);
+        if step == 0 {
             cr.move_to(x, y);
         } else {
             cr.line_to(x, y);
         }
     }
-    if let Some(last) = curve.last() {
-        let (x, _) = curve_to_pos(plot, last);
-        cr.line_to(x, plot.1);
-    }
+    cr.line_to(end_x, plot.1);
     let _ = cr.stroke();
+}
+
+/// Handle position relative to the start/end box, so moving an end point keeps the bend.
+fn handle_relative(curve: &[CurvePoint]) -> (f64, f64) {
+    let (start, handle, end) = (&curve[0], &curve[1], &curve[2]);
+    let u = remap(handle.temp_c as f64, start.temp_c as f64, end.temp_c as f64, 0.0, 1.0);
+    let v = if start.speed_percent == end.speed_percent {
+        0.5
+    } else {
+        remap(handle.speed_percent as f64, start.speed_percent as f64, end.speed_percent as f64, 0.0, 1.0)
+    };
+    (u, v)
+}
+
+fn handle_absolute(curve: &[CurvePoint], u: f64, v: f64) -> CurvePoint {
+    let (start, end) = (&curve[0], &curve[2]);
+    let (low, high) = speed_range(curve);
+    CurvePoint {
+        temp_c: remap(u, 0.0, 1.0, start.temp_c as f64, end.temp_c as f64).round() as u8,
+        speed_percent: (remap(v, 0.0, 1.0, start.speed_percent as f64, end.speed_percent as f64).round() as u8).clamp(low, high),
+    }
 }
 
 fn draw_panel(_cr: &cairo::Context, width: f64, height: f64) -> (f64, f64, f64, f64) {

@@ -11,7 +11,7 @@ Fan controller application written in Rust for T2 Macs running Linux.
 Supports applesmc, macsmc hwmon and t2smc (https://github.com/deqrocks/t2-smc) hwmon paths.
 
 
-T2 Fan Control provides a compact desktop interface for monitoring temperatures and editing a four-point fan curve with a model-specific system-temperature target.
+T2 Fan Control provides a compact desktop interface for monitoring temperatures and editing a smooth fan curve with a model-specific system-temperature target.
 
 Fan control is handled by a background daemon integrated with systemd. This keeps the state persistent across boot, suspend and resume, while the GUI talks to the daemon over a Unix socket.
 
@@ -65,13 +65,18 @@ The any-sensor protection uses a 5 C release hysteresis: a threshold of 90 C eng
 
 ### Editing the curve
 
-The curve contains exactly four points:
+The curve has a start point, an end point and one bend handle (the hollow ring) that sits on the curve:
 
-- All four points can be moved horizontally and vertically, but cannot cross each other.
+- Start and end can be moved horizontally and vertically. Moving them keeps the bend's relative position.
+- Moving the handle along the curve shifts where the bend sits; moving it up or down bends the curve. With the handle on the straight line between start and end, the curve is straight.
+- The curve is a smooth, monotone cubic through the three points, so there are no kinks. Below the start point the fans hold the start speed.
+- Configurations with the former four-point curve keep their first, third and fourth point.
 - Curve points may sit on either side of the system wall because the two controls are independent.
 - Moving the system wall never moves, scales or limits the fan curve.
 
 Fan percentages are relative to each fan's reported minimum and maximum RPM. Therefore `0%` means the hardware minimum RPM, not a stopped fan.
+
+Fan speed follows the curve with a ramp of at most +8% or -4% per two-second tick. A new ramp starts once the curve target differs by 3% or more, so a steady temperature causes no fan writes. Exceeding the curve's end point, the system target or the any-sensor protection jumps to 100% immediately.
 
 ### Monitoring values
 
@@ -90,7 +95,7 @@ system_cooling_time_s=5
 any_sensor_enabled=false
 any_sensor_temp_c=100
 curve_sensor_key=
-custom_curve=0:10,35:14,71:25,93:64
+custom_curve=0:10,70:25,95:65
 ```
 
 Curve entries use `temperature:speed-percent` pairs. The active configuration is stored at:

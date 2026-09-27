@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use crate::{
-    config::{curve, AppConfig, CurvePoint},
+    config::{curve, curve_percent, AppConfig, CurvePoint},
     error::Result,
     sysfs::{FanEndpoint, TemperatureSnapshot, TemperatureSource},
 };
@@ -9,9 +9,13 @@ use crate::{
 const CONTROL_INTERVAL: Duration = Duration::from_secs(2);
 const SYSTEM_LIMIT_HYSTERESIS_C: u8 = 2;
 const SYSTEM_STABLE_RELEASE_TIME: Duration = Duration::from_secs(20);
+const RAMP_UP_PERCENT_PER_TICK: u8 = 8;
+const RAMP_DOWN_PERCENT_PER_TICK: u8 = 4;
+const RAMP_START_THRESHOLD_PERCENT: u8 = 3;
 
 pub struct Controller {
     last_applied_percent: Option<u8>,
+    ramping: bool,
     last_tick: Instant,
     heat_soak_cooling: bool,
     any_sensor_cooling: bool,
@@ -35,6 +39,7 @@ impl Controller {
     pub fn new() -> Self {
         Self {
             last_applied_percent: None,
+            ramping: false,
             last_tick: Instant::now() - CONTROL_INTERVAL,
             heat_soak_cooling: false,
             any_sensor_cooling: false,
@@ -71,15 +76,22 @@ impl Controller {
         } else {
             false
         };
-        let target_percent = if self.heat_soak_cooling || self.any_sensor_cooling {
-            Some(100)
-        } else {
-            curve_target
-        };
+        let above_curve = effective_temp
+            .zip(curve.last())
+            .is_some_and(|(temp, end)| temp > end.temp_c);
+        let forced = self.heat_soak_cooling || self.any_sensor_cooling || above_curve;
+        let mut target_percent = if forced { Some(100) } else { curve_target };
 
         let mut target_rpm_per_fan = Vec::with_capacity(fans.len());
         if config.automatic_control_enabled {
-            let should_apply = should_apply_target(self.last_applied_percent, target_percent);
+            let (next_percent, ramping) = if forced {
+                (target_percent, false)
+            } else {
+                ramp_step(self.last_applied_percent, target_percent, self.ramping)
+            };
+            let should_apply = next_percent != self.last_applied_percent;
+            self.ramping = ramping;
+            target_percent = next_percent;
 
             for fan in fans {
                 let rpm = target_percent
@@ -122,6 +134,7 @@ impl Controller {
             fan.app_controlled = Some(false);
         }
         self.last_applied_percent = None;
+        self.ramping = false;
         self.heat_soak_cooling = false;
         self.any_sensor_cooling = false;
         self.system_cooling_started_at = None;
@@ -174,40 +187,30 @@ fn next_threshold_cooling(active: bool, temp_c: Option<u8>, engage_temp_c: u8, r
     }
 }
 
-fn should_apply_target(last_applied_percent: Option<u8>, next_target_percent: Option<u8>) -> bool {
-    match (last_applied_percent, next_target_percent) {
-        (None, Some(_)) | (Some(_), None) => true,
-        (None, None) => false,
-        (Some(previous), Some(next)) => previous.abs_diff(next) >= 3,
+/// Moves the applied speed toward the target by a limited step per tick. A new ramp only
+/// starts once the target differs by the threshold; a running ramp continues to the target.
+fn ramp_step(applied: Option<u8>, target: Option<u8>, ramping: bool) -> (Option<u8>, bool) {
+    let (Some(applied), Some(target)) = (applied, target) else {
+        return (target, false);
+    };
+    if !ramping && applied.abs_diff(target) < RAMP_START_THRESHOLD_PERCENT {
+        return (Some(applied), false);
     }
+    let next = if target > applied {
+        applied.saturating_add(RAMP_UP_PERCENT_PER_TICK).min(target)
+    } else {
+        applied.saturating_sub(RAMP_DOWN_PERCENT_PER_TICK).max(target)
+    };
+    (Some(next), next != target)
 }
 
 fn interpolate_percent(curve: &[CurvePoint], temp_c: u8) -> u8 {
-    if curve.is_empty() {
-        return 0;
-    }
-    if temp_c <= curve[0].temp_c {
-        return curve[0].speed_percent;
-    }
-    for window in curve.windows(2) {
-        let left = &window[0];
-        let right = &window[1];
-        if temp_c <= right.temp_c {
-            let temp_span = (right.temp_c - left.temp_c) as f32;
-            if temp_span <= f32::EPSILON {
-                return right.speed_percent;
-            }
-            let progress = (temp_c - left.temp_c) as f32 / temp_span;
-            let speed_span = right.speed_percent as f32 - left.speed_percent as f32;
-            return (left.speed_percent as f32 + progress * speed_span).round() as u8;
-        }
-    }
-    100
+    curve_percent(curve, temp_c as f64).round().clamp(0.0, 100.0) as u8
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{interpolate_percent, next_threshold_cooling};
+    use super::{interpolate_percent, next_threshold_cooling, ramp_step};
     use crate::config::CurvePoint;
 
     #[test]
@@ -222,12 +225,26 @@ mod tests {
     fn temperature_above_last_curve_point_forces_full_speed() {
         let curve = vec![
             CurvePoint { temp_c: 0, speed_percent: 0 },
-            CurvePoint { temp_c: 40, speed_percent: 10 },
             CurvePoint { temp_c: 70, speed_percent: 30 },
             CurvePoint { temp_c: 90, speed_percent: 50 },
         ];
         assert_eq!(interpolate_percent(&curve, 90), 50);
         assert_eq!(interpolate_percent(&curve, 91), 100);
         assert_eq!(interpolate_percent(&curve, 100), 100);
+    }
+
+    #[test]
+    fn ramp_limits_step_per_tick_and_finishes_at_target() {
+        assert_eq!(ramp_step(Some(20), Some(40), false), (Some(28), true));
+        assert_eq!(ramp_step(Some(36), Some(40), true), (Some(40), false));
+        assert_eq!(ramp_step(Some(40), Some(20), false), (Some(36), true));
+        assert_eq!(ramp_step(Some(22), Some(20), true), (Some(20), false));
+    }
+
+    #[test]
+    fn ramp_ignores_small_changes_while_settled() {
+        assert_eq!(ramp_step(Some(20), Some(22), false), (Some(20), false));
+        assert_eq!(ramp_step(None, Some(22), false), (Some(22), false));
+        assert_eq!(ramp_step(Some(20), None, false), (None, false));
     }
 }
