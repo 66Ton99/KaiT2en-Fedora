@@ -24,6 +24,7 @@
 #include <linux/pci.h>
 #include <linux/vga_switcheroo.h>
 #include <linux/debugfs.h>
+#include <linux/efi.h>
 #include <acpi/video.h>
 #include <asm/io.h>
 
@@ -1077,13 +1078,48 @@ static void gmux_fini_debugfs(struct apple_gmux_data *gmux_data)
 	debugfs_remove_recursive(gmux_data->debug_dentry);
 }
 
+#define APPLE_GPU_VARS_GUID EFI_GUID(0xfa4ce28d, 0xb62f, 0x4c99, \
+				     0x9c, 0xc3, 0x68, 0x15, 0x68, 0x6e, 0x30, 0xf9)
+
+static efi_char16_t gmux_gpu_active_name[] = L"gpu-active";
+
+/*
+ * AppleMuxControl2 stores the GPU driving the panel in gpu-active before
+ * sleep and power-off: 1 for the integrated GPU, 0 for the discrete one.
+ */
+static void gmux_write_gpu_active(struct apple_gmux_data *gmux_data)
+{
+	efi_guid_t guid = APPLE_GPU_VARS_GUID;
+	u32 active = gmux_data->switch_state_display == VGA_SWITCHEROO_IGD;
+	efi_status_t status;
+
+	if (!efivar_is_available())
+		return;
+
+	status = efivar_set_variable(gmux_gpu_active_name, &guid,
+				     EFI_VARIABLE_NON_VOLATILE |
+				     EFI_VARIABLE_BOOTSERVICE_ACCESS |
+				     EFI_VARIABLE_RUNTIME_ACCESS,
+				     sizeof(active), &active);
+	if (status != EFI_SUCCESS)
+		pr_warn("writing gpu-active failed: 0x%lx\n", status);
+	else
+		pr_debug("gpu-active: %u\n", active);
+}
+
 static int gmux_suspend(struct device *dev)
 {
 	struct pnp_dev *pnp = to_pnp_dev(dev);
 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
 
+	gmux_write_gpu_active(gmux_data);
 	gmux_disable_interrupts(gmux_data);
 	return 0;
+}
+
+static void gmux_shutdown(struct pnp_dev *pnp)
+{
+	gmux_write_gpu_active(pnp_get_drvdata(pnp));
 }
 
 static int gmux_resume(struct device *dev)
@@ -1358,6 +1394,7 @@ static struct pnp_driver gmux_pnp_driver = {
 	.name		= "t2gmux",
 	.probe		= gmux_probe,
 	.remove		= gmux_remove,
+	.shutdown	= gmux_shutdown,
 	.id_table	= gmux_device_ids,
 	.driver		= {
 			.pm = &gmux_dev_pm_ops,
@@ -1370,4 +1407,5 @@ MODULE_AUTHOR("kait2en");
 MODULE_DESCRIPTION("Kait2en T2 GMUX driver");
 MODULE_VERSION("0.8");
 MODULE_LICENSE("GPL");
+MODULE_IMPORT_NS("EFIVAR");
 MODULE_DEVICE_TABLE(pnp, gmux_device_ids);
