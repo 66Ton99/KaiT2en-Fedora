@@ -52,21 +52,19 @@ The installer also writes
 DKMS build state before a kernel installation is retried.
 
 On the MacBookPro15,1, MacBookPro16,1 and MacBookPro16,4, the app installer also
-builds the AMDGPU and Intel HDA modules with the hybrid runtime-PM patches and
-installs them for the running kernel at:
+builds the AMDGPU module with the hybrid runtime-PM patches and installs it for
+the running kernel at:
 
 ```text
 /usr/lib/modules/<kernel>/updates/kait2en-gpu-runtime-pm/amdgpu.ko.xz
-/usr/lib/modules/<kernel>/updates/kait2en-gpu-runtime-pm/snd-hda-intel.ko.xz
 ```
 
-The corresponding modprobe and dracut configuration is installed as
-`/usr/lib/modprobe.d/kait2en-gpu-runtime-pm.conf` and
-`/etc/dracut.conf.d/90-kait2en-gpu-runtime-pm.conf`.
+The corresponding modprobe configuration is installed as
+`/usr/lib/modprobe.d/kait2en-gpu-runtime-pm.conf`.
 
-Unlike the T2 modules above, these patched AMDGPU and HDA modules are not built
-by DKMS. After a Fedora kernel update, boot the new kernel before rebuilding
-them for its exact release:
+Unlike the T2 modules above, this patched AMDGPU module is not built by DKMS.
+After a Fedora kernel update, boot the new kernel before rebuilding it for its
+exact release:
 
 ```bash
 cd /usr/local/src/KaiT2en-Fedora
@@ -74,7 +72,7 @@ sudo ./scripts/fedora/install-gpu-runtime-pm.sh
 sudo reboot
 ```
 
-The script installs the modules for the running kernel and rebuilds that
+The script installs the module for the running kernel and rebuilds that
 kernel's initramfs.
 
 ## Kernel arguments

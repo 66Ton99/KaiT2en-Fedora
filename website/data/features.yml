@@ -307,7 +307,7 @@ items:
       - byte
       - deqrocks
     link: post-install/configuring-gpus.md
-    updated: "2026-09-22"
+    updated: "2026-09-29"
     notes: >-
       Runtime GPU switching, dGPU power management, and working suspend and
       resume are available on MacBookPro16,1 and MacBookPro16,4.

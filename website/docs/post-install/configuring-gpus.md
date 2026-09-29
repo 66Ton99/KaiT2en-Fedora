@@ -20,11 +20,11 @@ for accelerated work and returns it to D3cold when it becomes idle. This keeps
 the dGPU available without paying its idle power cost. System suspend and
 resume are fully supported in hybrid mode on all three models.
 
-The installer builds the required AMDGPU and HDA modules for the current Fedora
-kernel. The app reports whether the required runtime-PM support is active.
+The installer builds the required AMDGPU module for the current Fedora kernel.
+The app reports whether the required runtime-PM support is active.
 
-These two modules are not managed by DKMS. After Fedora installs a new kernel,
-first reboot into that kernel and then rebuild its hybrid-graphics modules:
+This module is not managed by DKMS. After Fedora installs a new kernel, first
+reboot into that kernel and then rebuild its hybrid-graphics module:
 
 ```bash
 cd /usr/local/src/KaiT2en-Fedora
@@ -32,7 +32,7 @@ sudo ./scripts/fedora/install-gpu-runtime-pm.sh
 sudo reboot
 ```
 
-Running the script before booting the new kernel only rebuilds the modules for
+Running the script before booting the new kernel only rebuilds the module for
 the old, currently running kernel. Until the rebuild and second reboot are
 complete, hybrid runtime PM is not available on the new kernel.
 
