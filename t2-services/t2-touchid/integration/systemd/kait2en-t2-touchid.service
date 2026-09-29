@@ -5,7 +5,7 @@ Wants=NetworkManager.service network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=-/usr/share/kait2en/t2-touchid.conf
+EnvironmentFile=/usr/share/kait2en/t2-touchid.conf
 EnvironmentFile=-/etc/kait2en/t2-touchid.conf
 ExecStart=@BINDIR@/t2-touchid --socket ${T2_TOUCHID_SOCKET} --uid ${T2_TOUCHID_UID} --flags ${T2_TOUCHID_FLAGS} --bind-user ${T2_TOUCHID_BIND_USER}
 Restart=on-failure
