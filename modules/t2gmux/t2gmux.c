@@ -71,6 +71,10 @@ struct apple_gmux_data {
 	/* switcheroo data */
 	acpi_handle dhandle;
 	int gpe;
+	bool gpe_enabled;
+	/* Serializes power sequences and interrupt handling like the AGC workloop. */
+	struct mutex power_lock;
+	struct work_struct interrupt_work;
 	bool external_switchable;
 	enum vga_switcheroo_client_id switch_state_display;
 	enum vga_switcheroo_client_id switch_state_ddc;
@@ -100,6 +104,9 @@ static struct apple_gmux_data *apple_gmux_data;
  * with save/restoreDeviceState on the GPU, its HDA function and the bridges
  * above them, since all of them lose config space when the rails drop.
  *
+ * On power-up it writes no gmux port: PWRD(0) calls PUPD(1), which writes
+ * GMUX_PORT_DISCRETE_POWER 3 through the gmux mailbox itself.
+ *
  * SaveRootPort is 6 in that config, which is the capacity of the bridge
  * array; the kext stops at the first empty slot, so walk to the root port.
  */
@@ -107,6 +114,8 @@ static struct apple_gmux_data *apple_gmux_data;
 
 /* GPUMinimumOffTime of the AppleMuxControl2 config for these models. */
 #define GMUX_DGPU_MIN_OFF_MS 200
+/* Config space wait of AppleMuxControl2 after power-up. */
+#define GMUX_DGPU_CFG_WAIT_MS 180
 
 static int gmux_call_pwrd(struct apple_gmux_data *gmux_data, bool power_down)
 {
@@ -116,7 +125,10 @@ static int gmux_call_pwrd(struct apple_gmux_data *gmux_data, bool power_down)
 	if (!handle)
 		return -ENODEV;
 
+	/* PWRD uses the gmux mailbox itself, like every port access here. */
+	mutex_lock(&gmux_data->index_lock);
 	status = acpi_execute_simple_method(handle, "PWRD", power_down);
+	mutex_unlock(&gmux_data->index_lock);
 	if (ACPI_FAILURE(status)) {
 		dev_err(&gmux_data->discrete_pdev->dev,
 			"failed to evaluate PWRD(%u): %s\n", power_down,
@@ -235,12 +247,12 @@ static int gmux_restore_dgpu_state(struct apple_gmux_data *gmux_data)
 		pci_restore_state(bridges[i]);
 	pr_debug("power up: %d bridges restored\n", count);
 
-	for (ms = 0; ms < 1000; ms++) {
+	for (ms = 0; ms < GMUX_DGPU_CFG_WAIT_MS; ms++) {
 		pci_read_config_dword(gmux_data->discrete_pdev, PCI_VENDOR_ID,
 				      &id);
 		if (id != 0xffffffff && id != 0)
 			break;
-		usleep_range(1000, 2000);
+		msleep(1);
 	}
 	if (id == 0xffffffff || id == 0) {
 		dev_err(&gmux_data->discrete_pdev->dev,
@@ -248,7 +260,7 @@ static int gmux_restore_dgpu_state(struct apple_gmux_data *gmux_data)
 		return -ETIMEDOUT;
 	}
 
-	pr_debug("power up: config space after %d polls\n", ms);
+	pr_debug("power up: config space after %d ms\n", ms);
 	ret = gmux_restore_function(gmux_data->discrete_pdev,
 				    gmux_data->gpu_bar0);
 	if (ret)
@@ -311,6 +323,7 @@ struct apple_gmux_config {
 
 #define GMUX_INTERRUPT_STATUS_ACTIVE	0
 #define GMUX_INTERRUPT_STATUS_DISPLAY	(1 << 0)
+#define GMUX_INTERRUPT_STATUS_FAILED	(1 << 1)
 #define GMUX_INTERRUPT_STATUS_POWER	(1 << 2)
 #define GMUX_INTERRUPT_STATUS_HOTPLUG	(1 << 3)
 
@@ -738,9 +751,10 @@ static void gmux_dump_power(struct apple_gmux_data *gmux_data,
 static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 				   enum vga_switcheroo_state state)
 {
-	int ret;
+	int ret = 0;
 
 	reinit_completion(&gmux_data->powerchange_done);
+	mutex_lock(&gmux_data->power_lock);
 
 	if (state == VGA_SWITCHEROO_ON) {
 		if (gmux_data->use_pwrd_power_sequence &&
@@ -754,19 +768,17 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 				msleep(GMUX_DGPU_MIN_OFF_MS - off_ms);
 			}
 
-			pr_debug("power up: port 3\n");
-			gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 3);
-
+			gmux_dump_power(gmux_data, "power up: before PWRD(0)", false);
 			pr_debug("power up: PWRD(0)\n");
 			ret = gmux_call_pwrd(gmux_data, false);
 			if (ret)
-				return ret;
+				goto out_unlock;
 			msleep(20);
 
 			pr_debug("power up: restore state\n");
 			ret = gmux_restore_dgpu_state(gmux_data);
 			if (ret)
-				return ret;
+				goto out_unlock;
 		} else if (gmux_data->use_pwg_power_sequence &&
 			   gmux_data->discrete_pdev) {
 			u16 vendor;
@@ -781,7 +793,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			pr_debug("power up: PWG1\n");
 			ret = gmux_call_pwg(gmux_data, "PWG1");
 			if (ret)
-				return ret;
+				goto out_unlock;
 
 			for (i = 0; i < 1000; i++) {
 				pci_read_config_word(gmux_data->discrete_pdev,
@@ -793,14 +805,15 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			if (vendor == 0xffff) {
 				dev_err(&gmux_data->discrete_pdev->dev,
 					"timed out waiting for PCI config space\n");
-				return -ETIMEDOUT;
+				ret = -ETIMEDOUT;
+				goto out_unlock;
 			}
 
 			pr_debug("power up: config space after %d polls\n", i);
 			pr_debug("power up: PWG3\n");
 			ret = gmux_call_pwg(gmux_data, "PWG3");
 			if (ret)
-				return ret;
+				goto out_unlock;
 
 		} else {
 			pr_debug("power up: port 1\n");
@@ -815,12 +828,12 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			pr_debug("power down: save state\n");
 			ret = gmux_save_dgpu_state(gmux_data);
 			if (ret)
-				return ret;
+				goto out_unlock;
 
 			pr_debug("power down: PWRD(1)\n");
 			ret = gmux_call_pwrd(gmux_data, true);
 			if (ret)
-				return ret;
+				goto out_unlock;
 		}
 
 		pr_debug("power down: port 1\n");
@@ -839,6 +852,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	}
 
 	gmux_data->power_state = state;
+	mutex_unlock(&gmux_data->power_lock);
 
 	pr_debug("power: waiting for gmux completion\n");
 	if (gmux_data->gpe >= 0 &&
@@ -848,8 +862,14 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 		gmux_dump_power(gmux_data, "power: timeout", true);
 	}
 	pr_debug("power: gmux switch done\n");
+	gmux_dump_power(gmux_data, state == VGA_SWITCHEROO_ON ?
+			"power up: done" : "power down: done", false);
 
 	return 0;
+
+out_unlock:
+	mutex_unlock(&gmux_data->power_lock);
+	return ret;
 }
 
 static int gmux_set_power_state(enum vga_switcheroo_client_id id,
@@ -952,10 +972,8 @@ static const struct apple_gmux_config apple_gmux_mmio = {
  * Darwin, only a notification is signaled, whereas on other OSes, the GPIO's
  * value is read and then inverted.
  *
- * Because Linux masquerades as Darwin, it ends up in the notification-only code
- * path. On MMIO gmux's, this seems to lead to us being unable to clear interrupts,
- * unless we call GMSP(0). Without this, there is a flood of status=0 interrupts
- * that can't be cleared. This issue seems to be unique to MMIO gmux's.
+ * Like AppleMuxControl2, the driver installs its own handler for the GPE, which
+ * replaces _L15, and calls GMSP(0) on MMIO gmux's before unmasking interrupts.
  */
 
 static inline void gmux_disable_interrupts(struct apple_gmux_data *gmux_data)
@@ -975,33 +993,86 @@ static inline u8 gmux_interrupt_get_status(struct apple_gmux_data *gmux_data)
 	return gmux_read8(gmux_data, GMUX_PORT_INTERRUPT_STATUS);
 }
 
-static void gmux_clear_interrupts(struct apple_gmux_data *gmux_data)
+/* Prevent flood of status=0 interrupts */
+static void gmux_reset_interrupt_polarity(struct apple_gmux_data *gmux_data)
 {
-	u8 status;
-
-	/* to clear interrupts write back current status */
-	status = gmux_interrupt_get_status(gmux_data);
-	gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS, status);
-	/* Prevent flood of status=0 interrupts */
 	if (gmux_data->config == &apple_gmux_mmio)
 		acpi_execute_simple_method(gmux_data->dhandle, "GMSP", 0);
 }
 
-static void gmux_notify_handler(acpi_handle device, u32 value, void *context)
+/* AppleMuxControl2 enables and disables its GPE interrupt source like this. */
+static void gmux_start_interrupts(struct apple_gmux_data *gmux_data)
 {
+	gmux_reset_interrupt_polarity(gmux_data);
+	if (gmux_data->gpe >= 0 && !gmux_data->gpe_enabled &&
+	    ACPI_SUCCESS(acpi_enable_gpe(NULL, gmux_data->gpe)))
+		gmux_data->gpe_enabled = true;
+	gmux_enable_interrupts(gmux_data);
+}
+
+static void gmux_stop_interrupts(struct apple_gmux_data *gmux_data)
+{
+	gmux_disable_interrupts(gmux_data);
+	if (gmux_data->gpe_enabled) {
+		acpi_disable_gpe(NULL, gmux_data->gpe);
+		gmux_data->gpe_enabled = false;
+	}
+}
+
+/*
+ * Like macOS, handle the level-triggered gmux GPE directly instead of through
+ * _L15, and keep it disabled until the interrupt has been handled.
+ */
+static u32 gmux_gpe_handler(acpi_handle gpe_device, u32 gpe_number,
+			    void *context)
+{
+	struct apple_gmux_data *gmux_data = context;
+
+	schedule_work(&gmux_data->interrupt_work);
+	return ACPI_INTERRUPT_HANDLED;
+}
+
+/*
+ * Like AppleMuxControl2: ignore interrupts without a pending status, mask
+ * interrupts, acknowledge until the status reads 0, then unmask.
+ */
+static void gmux_interrupt_work(struct work_struct *work)
+{
+	struct apple_gmux_data *gmux_data =
+		container_of(work, struct apple_gmux_data, interrupt_work);
 	u8 status;
-	struct pnp_dev *pnp = (struct pnp_dev *)context;
-	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
+
+	mutex_lock(&gmux_data->power_lock);
+	status = gmux_interrupt_get_status(gmux_data);
+	pr_debug("Interrupt: status %d\n", status);
+	if (!status) {
+		acpi_finish_gpe(NULL, gmux_data->gpe);
+		mutex_unlock(&gmux_data->power_lock);
+		return;
+	}
+
+	gmux_disable_interrupts(gmux_data);
+	if (gmux_data->config == &apple_gmux_mmio) {
+		unsigned long long level;
+
+		acpi_evaluate_integer(gmux_data->dhandle, "GMLV", NULL, &level);
+		gmux_reset_interrupt_polarity(gmux_data);
+	}
+	acpi_finish_gpe(NULL, gmux_data->gpe);
 
 	status = gmux_interrupt_get_status(gmux_data);
-	gmux_disable_interrupts(gmux_data);
-	pr_debug("Notify handler called: status %d\n", status);
+	while (status) {
+		gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS, status);
+		gmux_interrupt_get_status(gmux_data);
+		if (status & GMUX_INTERRUPT_STATUS_POWER)
+			complete(&gmux_data->powerchange_done);
+		if (status & GMUX_INTERRUPT_STATUS_FAILED)
+			pr_warn("interrupt failed: status 0x%x\n", status);
+		status = gmux_interrupt_get_status(gmux_data);
+	}
 
-	gmux_clear_interrupts(gmux_data);
 	gmux_enable_interrupts(gmux_data);
-
-	if (status & GMUX_INTERRUPT_STATUS_POWER)
-		complete(&gmux_data->powerchange_done);
+	mutex_unlock(&gmux_data->power_lock);
 }
 
 /**
@@ -1112,14 +1183,17 @@ static int gmux_suspend(struct device *dev)
 	struct pnp_dev *pnp = to_pnp_dev(dev);
 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
 
+	gmux_stop_interrupts(gmux_data);
 	gmux_write_gpu_active(gmux_data);
-	gmux_disable_interrupts(gmux_data);
 	return 0;
 }
 
 static void gmux_shutdown(struct pnp_dev *pnp)
 {
-	gmux_write_gpu_active(pnp_get_drvdata(pnp));
+	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
+
+	gmux_stop_interrupts(gmux_data);
+	gmux_write_gpu_active(gmux_data);
 }
 
 static int gmux_resume(struct device *dev)
@@ -1127,7 +1201,9 @@ static int gmux_resume(struct device *dev)
 	struct pnp_dev *pnp = to_pnp_dev(dev);
 	struct apple_gmux_data *gmux_data = pnp_get_drvdata(pnp);
 
+	gmux_write8(gmux_data, GMUX_PORT_INTERRUPT_STATUS, 0xff);
 	gmux_enable_interrupts(gmux_data);
+	gmux_start_interrupts(gmux_data);
 	gmux_write_switch_state(gmux_data);
 	if (gmux_data->power_state == VGA_SWITCHEROO_OFF)
 		gmux_set_discrete_state(gmux_data, gmux_data->power_state);
@@ -1273,25 +1349,23 @@ get_version:
 		goto err_notify;
 	}
 
+	init_completion(&gmux_data->powerchange_done);
+	mutex_init(&gmux_data->power_lock);
+	INIT_WORK(&gmux_data->interrupt_work, gmux_interrupt_work);
+	gmux_disable_interrupts(gmux_data);
+
 	status = acpi_evaluate_integer(gmux_data->dhandle, "GMGP", NULL, &gpe);
 	if (ACPI_SUCCESS(status)) {
 		gmux_data->gpe = (int)gpe;
 
-		status = acpi_install_notify_handler(gmux_data->dhandle,
-						     ACPI_DEVICE_NOTIFY,
-						     &gmux_notify_handler, pnp);
+		status = acpi_install_gpe_handler(NULL, gmux_data->gpe,
+						  ACPI_GPE_LEVEL_TRIGGERED,
+						  gmux_gpe_handler, gmux_data);
 		if (ACPI_FAILURE(status)) {
-			pr_err("Install notify handler failed: %s\n",
+			pr_err("Install GPE handler failed: %s\n",
 			       acpi_format_exception(status));
 			ret = -ENODEV;
 			goto err_notify;
-		}
-
-		status = acpi_enable_gpe(NULL, gmux_data->gpe);
-		if (ACPI_FAILURE(status)) {
-			pr_err("Cannot enable gpe: %s\n",
-			       acpi_format_exception(status));
-			goto err_enable_gpe;
 		}
 	} else {
 		pr_warn("No GPE found for gmux\n");
@@ -1308,8 +1382,7 @@ get_version:
 		gmux_write8(gmux_data, GMUX_PORT_SWITCH_EXTERNAL, 3);
 
 	apple_gmux_data = gmux_data;
-	init_completion(&gmux_data->powerchange_done);
-	gmux_enable_interrupts(gmux_data);
+	gmux_start_interrupts(gmux_data);
 	gmux_read_switch_state(gmux_data);
 
 	/*
@@ -1330,15 +1403,12 @@ get_version:
 	return 0;
 
 err_register_handler:
-	gmux_disable_interrupts(gmux_data);
+	gmux_stop_interrupts(gmux_data);
 	apple_gmux_data = NULL;
-	if (gmux_data->gpe >= 0)
-		acpi_disable_gpe(NULL, gmux_data->gpe);
-err_enable_gpe:
-	if (gmux_data->gpe >= 0)
-		acpi_remove_notify_handler(gmux_data->dhandle,
-					   ACPI_DEVICE_NOTIFY,
-					   &gmux_notify_handler);
+	if (gmux_data->gpe >= 0) {
+		acpi_remove_gpe_handler(NULL, gmux_data->gpe, gmux_gpe_handler);
+		cancel_work_sync(&gmux_data->interrupt_work);
+	}
 err_notify:
 	backlight_device_unregister(bdev);
 err_unmap:
@@ -1360,12 +1430,10 @@ static void gmux_remove(struct pnp_dev *pnp)
 
 	gmux_fini_debugfs(gmux_data);
 	vga_switcheroo_unregister_handler();
-	gmux_disable_interrupts(gmux_data);
+	gmux_stop_interrupts(gmux_data);
 	if (gmux_data->gpe >= 0) {
-		acpi_disable_gpe(NULL, gmux_data->gpe);
-		acpi_remove_notify_handler(gmux_data->dhandle,
-					   ACPI_DEVICE_NOTIFY,
-					   &gmux_notify_handler);
+		acpi_remove_gpe_handler(NULL, gmux_data->gpe, gmux_gpe_handler);
+		cancel_work_sync(&gmux_data->interrupt_work);
 	}
 
 	backlight_device_unregister(gmux_data->bdev);

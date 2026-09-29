@@ -13,11 +13,12 @@ to sequence GPU power. A runtime-suspended GMUX GPU can remain powered off
 across system sleep, following the smart-suspend handling already used by
 BOCO devices.
 
-On muxed systems the inactive GPU cannot reach the panel AUX channel. Tell
-Display Core that eDP is disconnected before dc_create(), then omit that
-link from DRM connector and encoder registration when the GMUX GPU is not
-the boot display device. This avoids retaining a fail-safe sink that reports
-as connected and keeps the GPU runtime busy.
+On muxed systems the inactive GPU cannot reach the panel AUX channel. Like
+the macOS driver, tell Display Core that eDP is disconnected before
+dc_create() when the GMUX GPU is not the boot display device, and skip eDP
+detection at init as the resume path already does. This avoids powering the
+panel from the inactive GPU and retaining a fail-safe sink that reports as
+connected and keeps the GPU runtime busy.
 
 This allows the discrete GPU to enter D3cold while the integrated GPU is
 primary and allows PRIME workloads and external displays to wake it on
@@ -33,7 +34,7 @@ Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
  drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c           | 37 +++++++++++-------
  drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c | 12 ++++++
  drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h           |  1 +
- 5 files changed, 89 insertions(+), 20 deletions(-)
+ 5 files changed, 91 insertions(+), 20 deletions(-)
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
 index 7b09410..cc2e2e2 100644
@@ -292,20 +293,22 @@ diff --git a/drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c b/drivers/gpu/drm
  	/* Display Core create. */
  	adev->dm.dc = dc_create(&init_data);
  
-@@ -5675,6 +5680,13 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
- 		struct dc_link *link = NULL;
+@@ -5718,6 +5723,15 @@ static int amdgpu_dm_initialize_drm_device(struct amdgpu_device *adev)
+ 			dm->hpd_rx_offload_wq[aconnector->base.index].aconnector =
+ 				aconnector;
  
- 		link = dc_get_link_at_index(dm->dc, i);
++		/* Like the resume path, skip eDP detection without a sink. */
 +		if (link->connector_signal == SIGNAL_TYPE_EDP &&
 +		    amdgpu_device_has_gmux_edp(adev) &&
-+		    adev->pdev != vga_default_device()) {
-+			drm_info(adev_to_drm(adev), "Skipping inactive GMUX eDP link %d\n",
++		    !link->edp_sink_present) {
++			drm_info(adev_to_drm(adev), "Skipping detection of inactive GMUX eDP link %d\n",
 +				 i);
 +			continue;
 +		}
++
+ 		if (!dc_link_detect_connection_type(link, &new_connection_type))
+ 			drm_err(adev_to_drm(adev), "KMS: Failed to detect connector\n");
  
- 		if (link->connector_signal == SIGNAL_TYPE_VIRTUAL) {
- 			struct amdgpu_dm_wb_connector *wbcon = kzalloc_obj(*wbcon);
 diff --git a/drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h b/drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h
 index aa3f427..d76968f 100644
 --- a/drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h
