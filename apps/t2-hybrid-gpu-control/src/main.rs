@@ -88,22 +88,26 @@ struct GpuStatus {
     active: Gpu,
     discrete_state: String,
     runtime_pm: bool,
+    support: &'static str,
+}
+
+impl GpuStatus {
+    fn unavailable(support: &'static str) -> Self {
+        Self {
+            active: Gpu::Unknown,
+            discrete_state: "Unavailable".into(),
+            runtime_pm: false,
+            support,
+        }
+    }
 }
 
 fn switcheroo_status() -> GpuStatus {
     let Ok(output) = Command::new("pkexec").arg(STATUS_HELPER).output() else {
-        return GpuStatus {
-            active: Gpu::Unknown,
-            discrete_state: "Unavailable".into(),
-            runtime_pm: false,
-        };
+        return GpuStatus::unavailable("Could not start the status helper");
     };
     if !output.status.success() {
-        return GpuStatus {
-            active: Gpu::Unknown,
-            discrete_state: "Unavailable".into(),
-            runtime_pm: false,
-        };
+        return GpuStatus::unavailable("Could not read the vga_switcheroo state");
     }
 
     let mut active = Gpu::Unknown;
@@ -126,12 +130,22 @@ fn switcheroo_status() -> GpuStatus {
         }
     }
 
-    let discrete_state = discrete_state.unwrap_or_else(|| "Unavailable".into());
+    let Some(discrete_state) = discrete_state else {
+        return GpuStatus {
+            active,
+            ..GpuStatus::unavailable("No discrete GPU is registered with vga_switcheroo")
+        };
+    };
     let runtime_pm = matches!(discrete_state.as_str(), "DynPwr" | "DynOff");
     GpuStatus {
         active,
         discrete_state,
         runtime_pm,
+        support: if runtime_pm {
+            "Available"
+        } else {
+            "Runtime power management is not enabled for the discrete GPU"
+        },
     }
 }
 
@@ -182,11 +196,7 @@ fn update_runtime_status(
 ) {
     let status = switcheroo_status();
     current_row.set_subtitle(status.active.label());
-    runtime_row.set_subtitle(if status.runtime_pm {
-        "Available"
-    } else {
-        "Required kernel patches are not active"
-    });
+    runtime_row.set_subtitle(status.support);
     discrete_state_row.set_subtitle(&status.discrete_state);
     hybrid_button.set_sensitive(status.runtime_pm);
 }
@@ -223,11 +233,7 @@ fn build_ui(app: &adw::Application) {
         .build();
     let runtime_row = adw::ActionRow::builder()
         .title("Hybrid graphics support")
-        .subtitle(if status.runtime_pm {
-            "Available"
-        } else {
-            "Required kernel patches are not active"
-        })
+        .subtitle(status.support)
         .build();
     let discrete_state_row = adw::ActionRow::builder()
         .title("Discrete GPU runtime state")

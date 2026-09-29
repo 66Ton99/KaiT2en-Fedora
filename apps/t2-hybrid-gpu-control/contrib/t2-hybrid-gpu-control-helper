@@ -80,7 +80,7 @@ enable_hybrid_graphics() {
 	local amd
 
 	runtime_pm_supported ||
-		fail "required Apple GMUX runtime-PM kernel support is not available"
+		fail "runtime power management is not enabled for the discrete GPU in vga_switcheroo"
 	amd=$(find_amd_gpu) || fail "no AMDGPU device was found"
 	[[ -w "$amd/power/control" ]] ||
 		fail "runtime power control is unavailable on ${amd##*/}"
