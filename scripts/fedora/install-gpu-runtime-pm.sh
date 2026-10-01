@@ -5,7 +5,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 require_root
 require_repo_root
 require_fedora
-require_command awk depmod dnf dracut find modinfo rm rpm sha256sum
+require_command depmod dnf dracut find modinfo rm rpm
 
 usage() {
 	printf 'Usage: %s [install|remove] [KERNEL_RELEASE] [--defer-initramfs]\n' "$0" >&2
@@ -31,7 +31,6 @@ done
 MODULE_DIR="/usr/lib/modules/$KVER/updates/kait2en-gpu-runtime-pm"
 MODPROBE_CONF="/usr/lib/modprobe.d/kait2en-gpu-runtime-pm.conf"
 LEGACY_DRACUT_CONF="/etc/dracut.conf.d/90-kait2en-gpu-runtime-pm.conf"
-BUILD_ID_FILE="$MODULE_DIR/.build-id"
 PATCH_DIR="$REPO_ROOT/patches/runtime/gpu-runtime-pm"
 PATCH_SERIES="$PATCH_DIR/series"
 PATCH_FILES=()
@@ -109,18 +108,6 @@ if ! is_supported_model; then
 fi
 
 load_patch_series
-build_id=$(
-	sha256sum "$PATCH_SERIES" "${PATCH_FILES[@]}" "${BASH_SOURCE[0]}" |
-		sha256sum | awk '{ print $1 }'
-)
-if [[ -f "$MODULE_DIR/amdgpu.ko.xz" &&
-	! -e "$MODULE_DIR/snd-hda-intel.ko.xz" &&
-	! -e "$LEGACY_DRACUT_CONF" &&
-	-r "$BUILD_ID_FILE" &&
-	$(<"$BUILD_ID_FILE") == "$build_id" ]]; then
-	info "GPU runtime PM modules are current for $KVER"
-	exit 0
-fi
 
 info "installing build dependencies for $KVER"
 build_tree=$(readlink -f "/lib/modules/$KVER/build" 2>/dev/null || true)
@@ -224,7 +211,7 @@ xz --check=crc32 --lzma2=dict=1MiB -f "$staging/amdgpu.ko"
 info "installing GPU runtime PM modules for $KVER"
 install -d -m 0755 "$MODULE_DIR"
 install -m 0644 "$staging/amdgpu.ko.xz" "$MODULE_DIR/"
-rm -f "$MODULE_DIR/snd-hda-intel.ko.xz" "$LEGACY_DRACUT_CONF"
+rm -f "$MODULE_DIR/snd-hda-intel.ko.xz" "$MODULE_DIR/.build-id" "$LEGACY_DRACUT_CONF"
 cat >"$workdir/kait2en-gpu-runtime-pm.conf" <<'EOF'
 # GMUX must provide the power callbacks before AMDGPU probes.
 softdep amdgpu pre: t2gmux
@@ -234,7 +221,6 @@ depmod -a "$KVER"
 if ((DEFER_INITRAMFS == 0)); then
 	dracut --force "/boot/initramfs-$KVER.img" "$KVER"
 fi
-printf '%s\n' "$build_id" >"$BUILD_ID_FILE"
 
 info "GPU runtime PM modules installed for $KVER"
 info "reboot into $KVER, then verify with: modinfo -n amdgpu"
