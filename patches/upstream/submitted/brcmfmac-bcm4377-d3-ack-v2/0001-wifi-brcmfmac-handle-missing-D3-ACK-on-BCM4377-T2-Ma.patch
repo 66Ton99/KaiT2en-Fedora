@@ -1,0 +1,55 @@
+From 1472496b02411088839a1a79ff761c1e3e2ccbf9 Mon Sep 17 00:00:00 2001
+In-Reply-To: <20260918213014.1890677-1-dev@deq.rocks>
+References: <20260918213014.1890677-1-dev@deq.rocks>
+From: Andre Eikmeyer <dev@deq.rocks>
+Date: Thu, 1 Oct 2026 10:48:32 +0200
+Subject: [PATCH v2] wifi: brcmfmac: handle missing D3 ACK on BCM4377 T2 Macs
+
+BCM4377 on the affected T2 Macs does not acknowledge HOST_D3_INFORM.
+The current PCIe suspend callback treats this as fatal and aborts system
+suspend.
+
+When this happens on BCM4377, mask the mailbox interrupt, preserve the
+bus-down state, and let generic PCI/ACPI suspend proceed. On resume the
+existing recovery path tears down and probes the device again instead of
+relying on a D0 mailbox transaction.
+
+Tested-on: MacBookAir9,1, MacBookPro15,4, MacBookPro16,3
+Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
+---
+Changes in v2:
+- Drop the redundant DMI allowlist; BCM4377 is Apple-exclusive and only
+  appears in the three affected MacBook models.
+- Keep the device check inside CONFIG_PM, fixing the CONFIG_PM=n unused
+  function warning reported by the kernel test robot.
+
+ drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+index 55f4d7b97..e2e050395 100644
+--- a/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
++++ b/drivers/net/wireless/broadcom/brcm80211/brcmfmac/pcie.c
+@@ -2652,11 +2652,18 @@ static int brcmf_pcie_pm_enter_D3(struct device *dev)
+ 	wait_event_timeout(devinfo->mbdata_resp_wait, devinfo->mbdata_completed,
+ 			   BRCMF_PCIE_MBDATA_TIMEOUT);
+ 	if (!devinfo->mbdata_completed) {
++		if (devinfo->pdev->device == BRCM_PCIE_4377_DEVICE_ID) {
++			dev_info(dev, "D3 ACK missing; masking PCIe mailbox interrupt\n");
++			brcmf_pcie_intr_disable(devinfo);
++			goto done;
++		}
++
+ 		brcmf_err(bus, "Timeout on response for entering D3 substate\n");
+ 		brcmf_bus_change_state(bus, BRCMF_BUS_UP);
+ 		return -EIO;
+ 	}
+ 
++done:
+ 	devinfo->state = BRCMFMAC_PCIE_STATE_DOWN;
+ 
+ 	return 0;
+
+base-commit: 1631d79ae57dce2c5f88ad278307028638a8b4d9
+-- 
+2.55.0
