@@ -120,6 +120,11 @@ static struct apple_gmux_data *apple_gmux_data;
 static int gmux_call_pwrd(struct apple_gmux_data *gmux_data, bool power_down)
 {
 	acpi_handle handle = ACPI_HANDLE(&gmux_data->discrete_pdev->dev);
+	union acpi_object arg = {
+		.integer = { .type = ACPI_TYPE_INTEGER, .value = power_down },
+	};
+	struct acpi_object_list args = { 1, &arg };
+	unsigned long long result;
 	acpi_status status;
 
 	if (!handle)
@@ -127,7 +132,7 @@ static int gmux_call_pwrd(struct apple_gmux_data *gmux_data, bool power_down)
 
 	/* PWRD uses the gmux mailbox itself, like every port access here. */
 	mutex_lock(&gmux_data->index_lock);
-	status = acpi_execute_simple_method(handle, "PWRD", power_down);
+	status = acpi_evaluate_integer(handle, "PWRD", &args, &result);
 	mutex_unlock(&gmux_data->index_lock);
 	if (ACPI_FAILURE(status)) {
 		dev_err(&gmux_data->discrete_pdev->dev,
@@ -135,6 +140,16 @@ static int gmux_call_pwrd(struct apple_gmux_data *gmux_data, bool power_down)
 			acpi_format_exception(status));
 		return -EIO;
 	}
+
+	/*
+	 * PWRD(0) returns 1 when the PEG link did not finish training within
+	 * 500 ms or did not come up at the expected width. Keep going, the
+	 * config space wait in the restore catches a GPU that is not there.
+	 */
+	if (result)
+		dev_warn(&gmux_data->discrete_pdev->dev,
+			 "PWRD(%u) returned %llu, link did not train\n",
+			 power_down, result);
 
 	return 0;
 }
@@ -161,6 +176,61 @@ static struct pci_dev *gmux_get_dgpu_hda(struct apple_gmux_data *gmux_data)
 	struct pci_dev *gpu = gmux_data->discrete_pdev;
 
 	return pci_get_slot(gpu->bus, PCI_DEVFN(PCI_SLOT(gpu->devfn), 1));
+}
+
+/*
+ * The GPU, its HDA function and the bridges up to the root port, whose
+ * config space PWRD takes away and brings back.
+ */
+#define GMUX_DGPU_MAX_CFG_LOCKS (GMUX_DGPU_MAX_BRIDGES + 2)
+
+struct gmux_cfg_locks {
+	struct pci_dev *pdev[GMUX_DGPU_MAX_CFG_LOCKS];
+	int count;
+};
+
+static void gmux_cfg_trylock(struct gmux_cfg_locks *locks,
+			     struct pci_dev *pdev)
+{
+	if (pci_cfg_access_trylock(pdev))
+		locks->pdev[locks->count++] = pci_dev_get(pdev);
+	else
+		pci_dbg(pdev, "config access already blocked\n");
+}
+
+/*
+ * Block user space config accesses to everything behind the root port while
+ * PWRD moves the PEG link between L0 and L2, so nothing hits a link that is
+ * neither up nor down. Only trylock: a reset holding one of them must not
+ * deadlock on the runtime resume it triggers. Accesses by the kernel,
+ * including the save and restore here, are not blocked.
+ */
+static void gmux_lock_dgpu_cfg(struct apple_gmux_data *gmux_data,
+			       struct gmux_cfg_locks *locks)
+{
+	struct pci_dev *bridges[GMUX_DGPU_MAX_BRIDGES];
+	int count = gmux_collect_bridges(gmux_data, bridges);
+	struct pci_dev *hda;
+	int i;
+
+	gmux_cfg_trylock(locks, gmux_data->discrete_pdev);
+	hda = gmux_get_dgpu_hda(gmux_data);
+	if (hda) {
+		gmux_cfg_trylock(locks, hda);
+		pci_dev_put(hda);
+	}
+	for (i = 0; i < count; i++)
+		gmux_cfg_trylock(locks, bridges[i]);
+}
+
+static void gmux_unlock_dgpu_cfg(struct gmux_cfg_locks *locks)
+{
+	while (locks->count) {
+		struct pci_dev *pdev = locks->pdev[--locks->count];
+
+		pci_cfg_access_unlock(pdev);
+		pci_dev_put(pdev);
+	}
 }
 
 static int gmux_save_function(struct pci_dev *pdev, u32 *bar0)
@@ -767,6 +837,7 @@ static void gmux_dump_power(struct apple_gmux_data *gmux_data,
 static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 				   enum vga_switcheroo_state state)
 {
+	struct gmux_cfg_locks cfg_locks = { .count = 0 };
 	int ret = 0;
 
 	reinit_completion(&gmux_data->powerchange_done);
@@ -785,6 +856,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			}
 
 			gmux_dump_power(gmux_data, "power up: before PWRD(0)", false);
+			gmux_lock_dgpu_cfg(gmux_data, &cfg_locks);
 			pr_debug("power up: PWRD(0)\n");
 			ret = gmux_call_pwrd(gmux_data, false);
 			if (ret)
@@ -793,6 +865,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 
 			pr_debug("power up: restore state\n");
 			ret = gmux_restore_dgpu_state(gmux_data);
+			gmux_unlock_dgpu_cfg(&cfg_locks);
 			if (ret)
 				goto out_unlock;
 		} else if (gmux_data->use_pwg_power_sequence &&
@@ -841,6 +914,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	} else {
 		if (gmux_data->use_pwrd_power_sequence &&
 		    gmux_data->discrete_pdev) {
+			gmux_lock_dgpu_cfg(gmux_data, &cfg_locks);
 			pr_debug("power down: save state\n");
 			ret = gmux_save_dgpu_state(gmux_data);
 			if (ret)
@@ -864,6 +938,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			msleep(20);
 			gmux_data->dgpu_off_time = ktime_get();
 		}
+		gmux_unlock_dgpu_cfg(&cfg_locks);
 		pr_debug("Discrete card powered down\n");
 	}
 
@@ -884,6 +959,7 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	return 0;
 
 out_unlock:
+	gmux_unlock_dgpu_cfg(&cfg_locks);
 	mutex_unlock(&gmux_data->power_lock);
 	return ret;
 }
