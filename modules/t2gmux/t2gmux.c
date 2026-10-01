@@ -914,6 +914,14 @@ static enum vga_switcheroo_client_id gmux_get_client_id(struct pci_dev *pdev)
 	    apple_gmux_data->discrete_pdev != pdev) {
 		pci_dev_put(apple_gmux_data->discrete_pdev);
 		apple_gmux_data->discrete_pdev = pci_dev_get(pdev);
+
+		/*
+		 * gmux cuts the rail below the root port, which also takes
+		 * the GPU's own switch ports with it, and restores the
+		 * bridges itself after power-up. Keep the PCI core from
+		 * runtime suspending them..
+		 */
+		pci_d3cold_disable(pdev);
 	}
 
 	return VGA_SWITCHEROO_DIS;
