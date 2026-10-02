@@ -20,6 +20,7 @@ pub struct Config {
     pub key_color: String,
     pub two_finger_window_ms: u64,
     pub volume_swipe_step_px: u32,
+    pub brightness_swipe_step_px: u32,
     pub mode_swipe_px: u32,
 }
 
@@ -35,6 +36,7 @@ impl Default for Config {
             key_color: "#dce6ff".into(),
             two_finger_window_ms: 100,
             volume_swipe_step_px: 40,
+            brightness_swipe_step_px: 40,
             mode_swipe_px: 160,
         }
     }
@@ -75,7 +77,9 @@ impl Config {
             "two_finger_window_ms must be 30..300"
         );
         anyhow::ensure!(
-            self.volume_swipe_step_px >= 10 && self.mode_swipe_px >= 40,
+            self.volume_swipe_step_px >= 10
+                && self.brightness_swipe_step_px >= 10
+                && self.mode_swipe_px >= 40,
             "swipe distances are too short"
         );
         parse_color(&self.key_color)

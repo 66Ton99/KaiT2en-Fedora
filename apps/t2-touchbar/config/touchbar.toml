@@ -15,11 +15,14 @@ haptic_feedback = true
 # blue keyboard backlight; outlines and the pressed state are derived from it.
 key_color = "#dce6ff"
 
-# Two-finger swipes. On the dark bar every volume_swipe_step_px of horizontal
-# travel sends one volume step (right is louder); on the lit bar a swipe of
+# Multi-finger swipes. On the dark bar every volume_swipe_step_px of horizontal
+# two-finger travel sends one volume step (right is louder), and every
+# brightness_swipe_step_px of three-finger travel one display brightness step
+# (right is brighter); on the lit bar a two-finger swipe of
 # mode_swipe_px switches between the media and F-key rows. A touch waits up to
 # two_finger_window_ms for a second finger before it wakes the bar or presses
 # a key; a tap shorter than that fires on release.
 two_finger_window_ms = 100
 volume_swipe_step_px = 40
+brightness_swipe_step_px = 40
 mode_swipe_px = 160
