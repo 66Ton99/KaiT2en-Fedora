@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use input_linux::{EventKind, Key, SynchronizeKind, uinput::UInputHandle};
 use input_linux_sys::{input_event, input_id, timeval, uinput_setup};
 
-const ALLOWED_KEYS: [Key; 25] = [
+const ALLOWED_KEYS: [Key; 24] = [
     Key::Esc,
     Key::F1,
     Key::F2,
@@ -23,7 +23,6 @@ const ALLOWED_KEYS: [Key; 25] = [
     Key::BrightnessDown,
     Key::BrightnessUp,
     Key::MicMute,
-    Key::Search,
     Key::IllumDown,
     Key::IllumUp,
     Key::PreviousSong,

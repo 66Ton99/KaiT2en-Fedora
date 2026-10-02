@@ -26,7 +26,6 @@ enum Glyph {
 enum Icon {
     Brightness(bool),
     Microphone,
-    Search,
     Keyboard(bool),
     Previous,
     PlayPause,
@@ -34,6 +33,9 @@ enum Icon {
     Mute,
     Volume(bool),
 }
+
+const KEY_GAP: u16 = 10;
+const GROUP_GAP: u16 = 56;
 
 #[derive(Clone, Copy)]
 pub struct Button {
@@ -49,12 +51,17 @@ pub struct Layout {
 
 impl Layout {
     pub fn new(mode: Mode, width: u16, physical_escape: bool) -> Self {
-        let mut entries: Vec<(Glyph, Key)> = Vec::new();
+        // Keys inside a group sit KEY_GAP apart; groups are separated by the
+        // wider GROUP_GAP, like the clusters of a hardware function row.
+        let mut groups: Vec<Vec<(Glyph, Key)>> = Vec::new();
         if !physical_escape {
-            entries.push((Glyph::Text("esc"), Key::Esc));
+            groups.push(vec![(Glyph::Text("esc"), Key::Esc)]);
         }
         match mode {
             Mode::Function => {
+                const LABELS: [&str; 12] = [
+                    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+                ];
                 let keys = [
                     Key::F1,
                     Key::F2,
@@ -69,46 +76,57 @@ impl Layout {
                     Key::F11,
                     Key::F12,
                 ];
-                for (index, key) in keys.into_iter().enumerate() {
-                    const LABELS: [&str; 12] = [
-                        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-                    ];
-                    entries.push((Glyph::Text(LABELS[index]), key));
-                }
+                groups.push(
+                    LABELS
+                        .into_iter()
+                        .zip(keys)
+                        .map(|(label, key)| (Glyph::Text(label), key))
+                        .collect(),
+                );
             }
-            Mode::Media => entries.extend([
-                (Glyph::Icon(Icon::Brightness(false)), Key::BrightnessDown),
-                (Glyph::Icon(Icon::Brightness(true)), Key::BrightnessUp),
-                (Glyph::Icon(Icon::Microphone), Key::MicMute),
-                (Glyph::Icon(Icon::Search), Key::Search),
-                (Glyph::Icon(Icon::Keyboard(false)), Key::IllumDown),
-                (Glyph::Icon(Icon::Keyboard(true)), Key::IllumUp),
-                (Glyph::Icon(Icon::Previous), Key::PreviousSong),
-                (Glyph::Icon(Icon::PlayPause), Key::PlayPause),
-                (Glyph::Icon(Icon::Next), Key::NextSong),
-                (Glyph::Icon(Icon::Mute), Key::Mute),
-                (Glyph::Icon(Icon::Volume(false)), Key::VolumeDown),
-                (Glyph::Icon(Icon::Volume(true)), Key::VolumeUp),
+            Mode::Media => groups.extend([
+                vec![
+                    (Glyph::Icon(Icon::Brightness(false)), Key::BrightnessDown),
+                    (Glyph::Icon(Icon::Brightness(true)), Key::BrightnessUp),
+                ],
+                vec![
+                    (Glyph::Icon(Icon::Keyboard(false)), Key::IllumDown),
+                    (Glyph::Icon(Icon::Keyboard(true)), Key::IllumUp),
+                ],
+                vec![
+                    (Glyph::Icon(Icon::Previous), Key::PreviousSong),
+                    (Glyph::Icon(Icon::PlayPause), Key::PlayPause),
+                    (Glyph::Icon(Icon::Next), Key::NextSong),
+                ],
+                vec![
+                    (Glyph::Icon(Icon::Microphone), Key::MicMute),
+                    (Glyph::Icon(Icon::Mute), Key::Mute),
+                    (Glyph::Icon(Icon::Volume(false)), Key::VolumeDown),
+                    (Glyph::Icon(Icon::Volume(true)), Key::VolumeUp),
+                ],
             ]),
         }
 
-        let gap = 10u16;
-        let count = entries.len() as u16;
-        let usable = width.saturating_sub(gap * (count + 1));
-        let cell = usable / count.max(1);
-        let buttons = entries
-            .into_iter()
-            .enumerate()
-            .map(|(index, (glyph, key))| {
-                let left = gap + index as u16 * (cell + gap);
-                Button {
+        let count = groups.iter().map(Vec::len).sum::<usize>().max(1) as u16;
+        let group_count = groups.len().max(1) as u16;
+        let spacing = KEY_GAP * (count - group_count) + GROUP_GAP * (group_count - 1);
+        let usable = width.saturating_sub(2 * KEY_GAP + spacing);
+        let cell = usable / count;
+        // Center the row so rounding leftovers end up evenly on both edges.
+        let mut left = KEY_GAP + (usable - cell * count) / 2;
+        let mut buttons = Vec::new();
+        for group in groups {
+            for (glyph, key) in group {
+                buttons.push(Button {
                     left,
                     right: left + cell,
                     glyph,
                     action: Action::Key(key),
-                }
-            })
-            .collect();
+                });
+                left += cell + KEY_GAP;
+            }
+            left += GROUP_GAP - KEY_GAP;
+        }
         Self { buttons }
     }
 
@@ -523,15 +541,6 @@ fn icon_shapes(icon: Icon) -> Vec<Shape> {
                 path.line_to(8.5, 9.0);
             }) {
                 shapes.push(Shape::Slash(path));
-            }
-        }
-        Icon::Search => {
-            if let Some(path) = build(&|path| {
-                path.push_circle(-1.8, -1.8, 6.8);
-                path.move_to(3.2, 3.2);
-                path.line_to(8.4, 8.4);
-            }) {
-                shapes.push(Shape::Stroke(path));
             }
         }
         Icon::Previous | Icon::Next => {
