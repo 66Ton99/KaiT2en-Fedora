@@ -12,7 +12,9 @@ Two fixed layers are available:
 - media keys
 - F-keys
 
-A 600 ms Fn hold switches the persistent layer. A short Fn press and a touch
+A 600 ms Fn hold or a two-finger swipe on the lit bar switches the persistent
+layer. A two-finger swipe on the dark bar changes the volume without waking
+it: right is louder, left is quieter. A short Fn press and a touch
 both wake the saved layer. The initial five-second illumination timeout learns
 up to a hard thirty-second ceiling when a user repeatedly has to wake the bar
 again. It decays slowly when the learned extension is unused.

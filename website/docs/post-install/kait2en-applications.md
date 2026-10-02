@@ -96,7 +96,9 @@ personal settings and learned state.
 Keeps the Touch Bar black until it is touched or Fn is pressed. The waking
 touch is consumed, preventing accidental activation of an invisible key. A
 short Fn press opens the remembered media or function-key row; holding Fn for
-600 milliseconds switches that remembered row.
+600 milliseconds, or swiping across the lit bar with two fingers, switches that
+remembered row. Swiping with two fingers across the dark bar changes the volume
+without waking it.
 
 The initial five-second timeout is learned independently for both rows. It can
 grow to thirty seconds after a quick wake-and-use continuation, and shrinks

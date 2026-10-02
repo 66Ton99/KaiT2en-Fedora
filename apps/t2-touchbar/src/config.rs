@@ -18,6 +18,9 @@ pub struct Config {
     pub active_brightness: u32,
     pub haptic_feedback: bool,
     pub key_color: String,
+    pub two_finger_window_ms: u64,
+    pub volume_swipe_step_px: u32,
+    pub mode_swipe_px: u32,
 }
 
 impl Default for Config {
@@ -30,6 +33,9 @@ impl Default for Config {
             active_brightness: 128,
             haptic_feedback: true,
             key_color: "#dce6ff".into(),
+            two_finger_window_ms: 100,
+            volume_swipe_step_px: 40,
+            mode_swipe_px: 160,
         }
     }
 }
@@ -63,6 +69,14 @@ impl Config {
         anyhow::ensure!(
             self.active_brightness <= 255,
             "active_brightness must be 0..255"
+        );
+        anyhow::ensure!(
+            (30..=300).contains(&self.two_finger_window_ms),
+            "two_finger_window_ms must be 30..300"
+        );
+        anyhow::ensure!(
+            self.volume_swipe_step_px >= 10 && self.mode_swipe_px >= 40,
+            "swipe distances are too short"
         );
         parse_color(&self.key_color)
             .with_context(|| format!("key_color {:?} must be #rrggbb", self.key_color))?;

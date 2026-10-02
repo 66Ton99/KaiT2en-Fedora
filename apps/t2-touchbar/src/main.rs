@@ -3,6 +3,7 @@
 mod backlight;
 mod config;
 mod display;
+mod gesture;
 mod haptic;
 mod keyboard;
 mod policy;
@@ -38,6 +39,7 @@ use libc::{O_ACCMODE, O_RDONLY, O_RDWR, O_WRONLY, pollfd};
 use backlight::Backlight;
 use config::{Config, state_path};
 use display::Display;
+use gesture::{Swipe, SwipeKind};
 use haptic::Haptic;
 use keyboard::VirtualKeyboard;
 use policy::{PersistentState, TimeoutLearner};
@@ -74,6 +76,19 @@ enum Contact {
     Wake,
     Button(usize),
     Cancelled,
+    /// First finger, waiting whether a second one turns this into a swipe.
+    Pending,
+    Swipe,
+}
+
+/// A first touch held back for `two_finger_window_ms`. On the dark bar it
+/// becomes a wake, on the lit bar a key press, unless a second finger joins.
+#[derive(Clone, Copy, Debug)]
+struct PendingTouch {
+    slot: u32,
+    deadline_ms: u64,
+    dark: bool,
+    button: Option<usize>,
 }
 
 struct Runtime {
@@ -88,6 +103,9 @@ struct Runtime {
     fn_down_ms: Option<u64>,
     fn_toggled: bool,
     contacts: HashMap<u32, Contact>,
+    positions: HashMap<u32, f64>,
+    pending: Option<PendingTouch>,
+    swipe: Option<Swipe>,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -125,6 +143,9 @@ impl Runtime {
             fn_down_ms: None,
             fn_toggled: false,
             contacts: HashMap::new(),
+            positions: HashMap::new(),
+            pending: None,
+            swipe: None,
             touches_armed: true,
             active_button: None,
             layout,
@@ -178,7 +199,7 @@ impl Runtime {
     fn go_dark(&mut self, learned_off: bool) -> Result<()> {
         self.keyboard.release()?;
         self.active_button = None;
-        self.contacts.clear();
+        self.clear_touches();
         self.touches_armed = true;
         self.deadline_ms = None;
         if self.visible && learned_off {
@@ -193,29 +214,104 @@ impl Runtime {
         Ok(())
     }
 
+    fn clear_touches(&mut self) {
+        self.contacts.clear();
+        self.positions.clear();
+        self.pending = None;
+        self.swipe = None;
+    }
+
     fn touch_down(&mut self, slot: u32, x: f64, y: f64) -> Result<()> {
-        if self.touch_id != TouchIdState::Idle {
+        let now = self.now_ms();
+        self.resolve_pending(now)?;
+        self.positions.insert(slot, x);
+        if self.touch_id != TouchIdState::Idle || self.swipe.is_some() {
             self.contacts.insert(slot, Contact::Cancelled);
             return Ok(());
         }
-        if !self.visible {
-            self.contacts.insert(slot, Contact::Wake);
-            return self.wake(true);
+        if let Some(pending) = self.pending.take() {
+            return self.start_swipe(pending, slot);
         }
-        if !self.touches_armed || self.active_button.is_some() {
+        if !self.contacts.is_empty()
+            || (self.visible && (!self.touches_armed || self.active_button.is_some()))
+        {
             self.contacts.insert(slot, Contact::Cancelled);
             return Ok(());
         }
-        let Some(index) = self.layout.hit(x, y, self.canvas.height) else {
-            self.contacts.insert(slot, Contact::Cancelled);
+        let button = if self.visible {
+            self.layout.hit(x, y, self.canvas.height)
+        } else {
+            None
+        };
+        self.pending = Some(PendingTouch {
+            slot,
+            deadline_ms: now + self.config.two_finger_window_ms,
+            dark: !self.visible,
+            button,
+        });
+        self.contacts.insert(slot, Contact::Pending);
+        if button.is_some() {
+            // Highlight at once; only the key event waits for the window.
+            self.active_button = button;
+            self.present_keys()?;
+        }
+        Ok(())
+    }
+
+    fn start_swipe(&mut self, pending: PendingTouch, slot: u32) -> Result<()> {
+        let (kind, step) = if pending.dark {
+            (SwipeKind::Volume, self.config.volume_swipe_step_px)
+        } else {
+            (SwipeKind::Mode, self.config.mode_swipe_px)
+        };
+        self.contacts.insert(pending.slot, Contact::Swipe);
+        self.contacts.insert(slot, Contact::Swipe);
+        self.swipe = Some(Swipe::new(kind, self.swipe_centroid(), f64::from(step)));
+        if pending.button.is_some() {
+            self.active_button = None;
+            self.present_keys()?;
+        }
+        Ok(())
+    }
+
+    fn swipe_centroid(&self) -> f64 {
+        let xs: Vec<f64> = self
+            .contacts
+            .iter()
+            .filter(|(_, contact)| matches!(contact, Contact::Swipe))
+            .filter_map(|(slot, _)| self.positions.get(slot).copied())
+            .collect();
+        xs.iter().sum::<f64>() / xs.len().max(1) as f64
+    }
+
+    /// Turns a first touch whose window has expired into its single-finger
+    /// meaning: a wake on the dark bar, a held key on the lit bar.
+    fn resolve_pending(&mut self, now: u64) -> Result<()> {
+        let Some(pending) = self.pending.filter(|pending| now >= pending.deadline_ms) else {
             return Ok(());
         };
+        self.pending = None;
+        if pending.dark {
+            self.contacts.insert(pending.slot, Contact::Wake);
+            return self.wake(true);
+        }
+        match pending.button {
+            Some(index) => {
+                self.contacts.insert(pending.slot, Contact::Button(index));
+                self.press_button(index, now)
+            }
+            None => {
+                self.contacts.insert(pending.slot, Contact::Cancelled);
+                Ok(())
+            }
+        }
+    }
+
+    fn press_button(&mut self, index: usize, now: u64) -> Result<()> {
         let Action::Key(key) = self.layout.buttons[index].action;
         self.keyboard.press(key)?;
         self.haptic.click();
         self.active_button = Some(index);
-        self.contacts.insert(slot, Contact::Button(index));
-        let now = self.now_ms();
         if self
             .learner
             .action(now, self.state.mode, &mut self.state, &self.config)
@@ -227,26 +323,106 @@ impl Runtime {
     }
 
     fn touch_motion(&mut self, slot: u32, x: f64, y: f64) -> Result<()> {
-        let Some(Contact::Button(index)) = self.contacts.get(&slot).copied() else {
+        let now = self.now_ms();
+        self.resolve_pending(now)?;
+        self.positions.insert(slot, x);
+        match self.contacts.get(&slot).copied() {
+            Some(Contact::Swipe) => self.swipe_moved(now),
+            Some(Contact::Pending) => {
+                let Some(pending) = self.pending else {
+                    return Ok(());
+                };
+                if let Some(index) = pending.button
+                    && self.layout.hit(x, y, self.canvas.height) != Some(index)
+                {
+                    self.pending = None;
+                    self.active_button = None;
+                    self.contacts.insert(slot, Contact::Cancelled);
+                    self.present_keys()?;
+                }
+                Ok(())
+            }
+            Some(Contact::Button(index)) => {
+                if self.layout.hit(x, y, self.canvas.height) != Some(index) {
+                    self.keyboard.release()?;
+                    self.active_button = None;
+                    self.contacts.insert(slot, Contact::Cancelled);
+                    self.present_keys()?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn swipe_moved(&mut self, now: u64) -> Result<()> {
+        let centroid = self.swipe_centroid();
+        let Some(swipe) = self.swipe.as_mut() else {
             return Ok(());
         };
-        if self.layout.hit(x, y, self.canvas.height) != Some(index) {
-            self.keyboard.release()?;
-            self.active_button = None;
-            self.contacts.insert(slot, Contact::Cancelled);
-            self.present_keys()?;
+        let steps = swipe.advance(centroid);
+        if steps == 0 {
+            return Ok(());
         }
-        Ok(())
+        match swipe.kind {
+            SwipeKind::Volume => {
+                let key = if steps > 0 {
+                    Key::VolumeUp
+                } else {
+                    Key::VolumeDown
+                };
+                for _ in 0..steps.unsigned_abs() {
+                    self.keyboard.press(key)?;
+                    self.keyboard.release()?;
+                }
+                self.haptic.click();
+                Ok(())
+            }
+            SwipeKind::Mode => {
+                self.haptic.click();
+                self.switch_mode(now)
+            }
+        }
     }
 
     fn touch_up(&mut self, slot: u32) -> Result<()> {
-        if matches!(self.contacts.remove(&slot), Some(Contact::Button(_))) {
-            self.keyboard.release()?;
-            self.active_button = None;
-            self.present_keys()?;
+        let now = self.now_ms();
+        self.resolve_pending(now)?;
+        self.positions.remove(&slot);
+        match self.contacts.remove(&slot) {
+            Some(Contact::Pending) => {
+                // Lifted within the window: a plain tap.
+                if let Some(pending) = self.pending.take() {
+                    if pending.dark {
+                        self.wake(true)?;
+                    } else if let Some(index) = pending.button {
+                        self.press_button(index, now)?;
+                        self.keyboard.release()?;
+                        self.active_button = None;
+                        self.present_keys()?;
+                    }
+                }
+            }
+            Some(Contact::Button(_)) => {
+                self.keyboard.release()?;
+                self.active_button = None;
+                self.present_keys()?;
+            }
+            Some(Contact::Swipe) => {
+                // The centroid would jump to the remaining finger, so the
+                // first lift ends the swipe.
+                self.swipe = None;
+                for contact in self.contacts.values_mut() {
+                    if matches!(contact, Contact::Swipe) {
+                        *contact = Contact::Cancelled;
+                    }
+                }
+            }
+            _ => {}
         }
         if self.contacts.is_empty() {
             self.touches_armed = true;
+            self.swipe = None;
         }
         Ok(())
     }
@@ -278,6 +454,10 @@ impl Runtime {
             return Ok(());
         }
         self.fn_toggled = true;
+        self.switch_mode(now)
+    }
+
+    fn switch_mode(&mut self, now: u64) -> Result<()> {
         self.keyboard.release()?;
         self.active_button = None;
         self.state.mode = self.state.mode.toggled();
@@ -290,7 +470,7 @@ impl Runtime {
         self.touch_id = state;
         self.keyboard.release()?;
         self.active_button = None;
-        self.contacts.clear();
+        self.clear_touches();
         self.touches_armed = false;
         self.deadline_ms = None;
         if state == TouchIdState::Idle {
@@ -315,6 +495,7 @@ impl Runtime {
 
     fn tick(&mut self) -> Result<()> {
         let now = self.now_ms();
+        self.resolve_pending(now)?;
         self.toggle_mode_if_due(now)?;
         if self.touch_id == TouchIdState::Idle
             && self.visible
@@ -362,6 +543,9 @@ impl Runtime {
         }
         if let Some(deadline) = self.next_animation_ms {
             deadlines.push(deadline);
+        }
+        if let Some(pending) = self.pending {
+            deadlines.push(pending.deadline_ms);
         }
         deadlines
             .into_iter()
