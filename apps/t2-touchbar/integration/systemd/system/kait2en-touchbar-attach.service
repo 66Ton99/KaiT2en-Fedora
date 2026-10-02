@@ -1,0 +1,12 @@
+[Unit]
+Description=Attach the Apple T2 Touch Bar display interface
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/kait2en-touchbar --attach
+TimeoutStartSec=60
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

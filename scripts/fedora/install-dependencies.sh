@@ -43,7 +43,9 @@ packages=(
 	gtk4-devel \
 	libadwaita-devel \
 	glib2-devel \
+	libinput-devel \
 	libplist-devel \
+	systemd-devel \
 	fprintd \
 	fprintd-pam \
 	libfprint \

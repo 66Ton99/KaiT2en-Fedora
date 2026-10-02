@@ -32,6 +32,13 @@ remove_obsolete_apps() {
 	[[ "$reload" -eq 0 ]] || systemctl daemon-reload
 }
 
+clean_rust_build() {
+	local path=$1 target_user=$2
+	if ! sudo -H -u "$target_user" make -C "$path" clean; then
+		warn "could not remove build artifacts below $path"
+	fi
+}
+
 install_rust_app() {
 	local path=$1 name=$2 target_user
 	info "building and installing $name"
@@ -41,16 +48,19 @@ install_rust_app() {
 		fail "$name must be built for the user who invoked sudo"
 
 	if ! sudo -H -u "$target_user" make -C "$path" build; then
+		clean_rust_build "$path" "$target_user"
 		warn "$name build failed; skipping this app and continuing"
 		return 0
 	fi
 	if ! make -C "$path" install; then
+		clean_rust_build "$path" "$target_user"
 		warn "$name installation failed; continuing with the remaining apps"
 		return 0
 	fi
 	if [[ "$name" == t2-journal ]]; then
 		python3 "$REPO_ROOT/packaging/lifecycle/kait2en-lifecycle.py" t2-journal record-source || warn "could not record t2-journal installation ownership"
 	fi
+	clean_rust_build "$path" "$target_user"
 }
 
 install_gpu_control() {
@@ -105,6 +115,14 @@ run_step "t2-fan-control" install_rust_app "$REPO_ROOT/apps/t2-fan-control" "t2-
 run_step "t2-smc-control" install_rust_app "$REPO_ROOT/apps/t2-smc-control" "t2-smc-control"
 run_step "t2-power-explorer" install_rust_app "$REPO_ROOT/apps/t2-power-explorer" "t2-power-explorer"
 run_step "t2-force-click" install_rust_app "$REPO_ROOT/apps/t2-force-click" "t2-force-click"
+if [[ "${KAIT2EN_INSTALL_TOUCHBAR:-1}" == 1 ]]; then
+	run_step "kait2en-touchbar" "$REPO_ROOT/apps/t2-touchbar/install.sh"
+elif [[ -x /usr/local/bin/kait2en-touchbar ]]; then
+	info "kait2en-touchbar not selected; the existing installation is left unchanged"
+	info "remove it with: sudo $REPO_ROOT/apps/t2-touchbar/uninstall.sh"
+else
+	info "kait2en-touchbar not selected; the native Touch Bar row stays active"
+fi
 run_step "t2-journal" install_rust_app "$REPO_ROOT/t2-services/t2-journal" "t2-journal"
 run_step "GPU control" install_gpu_control
 if ! "$REPO_ROOT/apps/t2-cpu-control/install.sh"; then

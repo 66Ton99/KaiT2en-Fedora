@@ -1,0 +1,16 @@
+# The Touch Bar is always dark until touched or Fn is pressed. These values
+# bound the duration learned independently for the media and function layers.
+minimum_timeout_ms = 5000
+maximum_timeout_ms = 30000
+continuation_window_ms = 15000
+fn_long_press_ms = 600
+
+# t2tb_backlight has only a few hardware levels; values above its maximum are
+# clamped by the daemon.
+active_brightness = 128
+haptic_feedback = true
+
+
+# Glyph color as #rrggbb. The default is a cool white that matches the slightly
+# blue keyboard backlight; outlines and the pressed state are derived from it.
+key_color = "#dce6ff"

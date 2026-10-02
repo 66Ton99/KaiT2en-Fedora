@@ -1,0 +1,19 @@
+[package]
+name = "kait2en-touchbar"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+description = "Dark-first Touch Bar daemon for Apple T2 Macs"
+
+[dependencies]
+ab_glyph = { version = "0.2.32", features = ["variable-fonts"] }
+anyhow = "1.0"
+drm = "0.14"
+input = "0.9"
+input-linux = "0.7"
+input-linux-sys = "0.9"
+libc = "0.2"
+serde = { version = "1", features = ["derive"] }
+tiny-skia = { version = "0.12.0", default-features = false, features = ["std", "simd"] }
+toml = "0.8"
+zbus = "5"

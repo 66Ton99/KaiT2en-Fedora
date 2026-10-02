@@ -7,6 +7,45 @@ require_repo_root
 require_fedora
 require_min_kernel 7 0
 
+# Asked before anything runs so the rest of the installation is unattended.
+# KAIT2EN_INSTALL_TOUCHBAR=1|0 answers it ahead of time; without a terminal
+# the previous default (install) is kept.
+ask_touchbar() {
+	local answer
+	case "${KAIT2EN_INSTALL_TOUCHBAR:-}" in
+		1 | 0) return ;;
+	esac
+	if [[ ! -t 0 ]]; then
+		KAIT2EN_INSTALL_TOUCHBAR=1
+		return
+	fi
+	cat <<'TEXT'
+
+KAIT2EN Touch Bar (optional)
+
+  kait2en-touchbar replaces Apple's built-in Touch Bar row with its own
+  dark-first display: the bar stays black until you touch it or press Fn,
+  learns how long to stay lit, offers a media row and an F-key row (hold Fn
+  to switch), shows a fingerprint prompt for Touch ID and gives haptic
+  feedback on key presses. It saves power because the bar is off most of
+  the time.
+
+  Without it, the Touch Bar keeps working: Apple's native firmware row with
+  esc, brightness, volume and media keys (F-keys while Fn is held) stays
+  active.
+
+  You can remove it later with: sudo ./apps/t2-touchbar/uninstall.sh
+
+TEXT
+	read -r -p "Install kait2en-touchbar? [Y/n] " answer || answer=
+	case "${answer,,}" in
+		n | no) KAIT2EN_INSTALL_TOUCHBAR=0 ;;
+		*) KAIT2EN_INSTALL_TOUCHBAR=1 ;;
+	esac
+}
+ask_touchbar
+export KAIT2EN_INSTALL_TOUCHBAR
+
 install_multicall() {
 	install -d -o root -g root -m 0755 /usr/local/bin
 	install -o root -g root -m 0755 "$SCRIPT_DIR/kait2en-multicall" /usr/local/bin/kait2en-multicall

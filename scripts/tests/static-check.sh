@@ -20,6 +20,8 @@ shell_files=(
 	auto-installer/runtime/kait2en-rescue
 	auto-installer/runtime/kait2en-live-wifi
 	auto-installer/runtime/kait2en-prepare
+	apps/t2-touchbar/install.sh
+	apps/t2-touchbar/uninstall.sh
 	scripts/fedora/build-installer.sh
 	scripts/fedora/install-gdm-branding.sh
 	scripts/fedora/install-dkms-modules.sh
@@ -34,6 +36,7 @@ shell_files=(
 	scripts/tests/static-check.sh
 	scripts/tests/prepare-install.sh
 	scripts/tests/release-bootstrap.sh
+	scripts/tests/run-step-continuation.sh
 	scripts/tests/bt-firmware.sh
 	scripts/tests/live-bluetooth.sh
 	scripts/tests/rescue.sh
@@ -89,6 +92,16 @@ grep -Fq 'require_kernel_headers' scripts/fedora/install-dkms-modules.sh
 grep -Fq 'require_kernel_headers()' scripts/fedora/lib.sh
 grep -Fq 't2-kernel-builder installation failed; continuing because it is optional' \
 	scripts/fedora/install-apps.sh
+grep -Fq 'apps/t2-touchbar/install.sh' scripts/fedora/install-apps.sh
+# The Touch Bar daemon is optional and asked for before any step runs.
+grep -Fq 'KAIT2EN_INSTALL_TOUCHBAR' scripts/fedora/install-apps.sh
+grep -Fq 'ask_touchbar' scripts/fedora/install.sh
+grep -Fq '"$BIN" --detach' apps/t2-touchbar/uninstall.sh
+grep -Fq 'make -C "$APP_DIR" clean' apps/t2-touchbar/install.sh
+grep -Fq 'device_group_is_live' apps/t2-touchbar/install.sh
+grep -Fq 'kait2en-touchbar --detach' apps/t2-touchbar/install.sh
+grep -Fq 'kait2en-touchbar --attach' \
+	apps/t2-touchbar/integration/systemd/system/kait2en-touchbar-attach.service
 grep -Fq 't2-kernel-builder bundle is incomplete' \
 	apps/t2-kernel-builder/install.sh
 # A wrong origin URL must be repaired; dying leaves the user with no way out.
@@ -258,6 +271,7 @@ bash scripts/tests/live-wifi.sh
 bash scripts/tests/live-bluetooth.sh
 bash scripts/tests/rescue.sh
 bash scripts/tests/prepare-install.sh
+bash scripts/tests/run-step-continuation.sh
 bash scripts/tests/install-launcher.sh
 bash scripts/tests/release-bootstrap.sh
 bash scripts/tests/terminal-launcher.sh
