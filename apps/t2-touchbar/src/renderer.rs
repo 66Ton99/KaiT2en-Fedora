@@ -54,9 +54,6 @@ impl Layout {
         // Keys inside a group sit KEY_GAP apart; groups are separated by the
         // wider GROUP_GAP, like the clusters of a hardware function row.
         let mut groups: Vec<Vec<(Glyph, Key)>> = Vec::new();
-        if !physical_escape {
-            groups.push(vec![(Glyph::Text("esc"), Key::Esc)]);
-        }
         match mode {
             Mode::Function => {
                 const LABELS: [&str; 12] = [
@@ -107,23 +104,44 @@ impl Layout {
             ]),
         }
 
+        // esc keeps the same slot in every mode, so switching layers only
+        // swaps the keys to its right and never moves or resizes it.
+        let mut buttons = Vec::new();
+        let mut start = KEY_GAP;
+        if !physical_escape {
+            let right = start + width / 14;
+            buttons.push(Button {
+                left: start,
+                right,
+                glyph: Glyph::Text("esc"),
+                action: Action::Key(Key::Esc),
+            });
+            start = right + GROUP_GAP;
+        }
+
+        // The remaining span is filled edge to edge. Rounding leftovers widen
+        // the first keys by one pixel instead of shifting the row.
         let count = groups.iter().map(Vec::len).sum::<usize>().max(1) as u16;
         let group_count = groups.len().max(1) as u16;
         let spacing = KEY_GAP * (count - group_count) + GROUP_GAP * (group_count - 1);
-        let usable = width.saturating_sub(2 * KEY_GAP + spacing);
+        let usable = width.saturating_sub(start + KEY_GAP + spacing);
         let cell = usable / count;
-        // Center the row so rounding leftovers end up evenly on both edges.
-        let mut left = KEY_GAP + (usable - cell * count) / 2;
-        let mut buttons = Vec::new();
+        let mut extra = usable - cell * count;
+        let mut left = start;
         for group in groups {
             for (glyph, key) in group {
+                let mut right = left + cell;
+                if extra > 0 {
+                    right += 1;
+                    extra -= 1;
+                }
                 buttons.push(Button {
                     left,
-                    right: left + cell,
+                    right,
                     glyph,
                     action: Action::Key(key),
                 });
-                left += cell + KEY_GAP;
+                left = right + KEY_GAP;
             }
             left += GROUP_GAP - KEY_GAP;
         }
@@ -676,6 +694,18 @@ mod tests {
                 assert!(pair[0].right < pair[1].left);
             }
         }
+    }
+
+    #[test]
+    fn esc_and_row_edges_stay_put_across_modes() {
+        let media = Layout::new(Mode::Media, 2170, false);
+        let function = Layout::new(Mode::Function, 2170, false);
+        let edges = |layout: &Layout| {
+            let first = layout.buttons[0];
+            let last = layout.buttons[layout.buttons.len() - 1];
+            (first.left, first.right, layout.buttons[1].left, last.right)
+        };
+        assert_eq!(edges(&media), edges(&function));
     }
 
     #[test]

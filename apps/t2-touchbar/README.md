@@ -1,13 +1,11 @@
 # KAIT2EN Touch Bar
 
 kait2en-touchbar replaces Apple's built-in Touch Bar row with its own
-dark-first display: the bar stays black until you touch it or press Fn,
+dark-first display. The bar stays black until you touch it or press Fn,
 learns how long to stay lit, offers a media row and an F-key row (hold Fn
 to switch), shows a fingerprint prompt for Touch ID and gives haptic
 feedback on key presses. It saves power because the bar is off most of
-the time. So it is a dark-first Touch Bar daemon for T2 Macs.
-The panel stays black until it is touched or Fn is pressed.
-So unintentional touches are avoided as well as power draw "for nothing".
+the time.
 
 Two fixed layers are available:
 
