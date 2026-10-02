@@ -225,6 +225,13 @@ impl Runtime {
         let now = self.now_ms();
         self.resolve_pending(now)?;
         self.positions.insert(slot, x);
+        if self.touch_id == TouchIdState::Idle
+            && self
+                .swipe
+                .is_some_and(|swipe| swipe.kind == SwipeKind::Volume && !swipe.fired())
+        {
+            return self.start_brightness_swipe(slot);
+        }
         if self.touch_id != TouchIdState::Idle || self.swipe.is_some() {
             self.contacts.insert(slot, Contact::Cancelled);
             return Ok(());
@@ -271,6 +278,18 @@ impl Runtime {
             self.active_button = None;
             self.present_keys()?;
         }
+        Ok(())
+    }
+
+    /// A third finger joining a dark-bar swipe before any volume step turns
+    /// it into a brightness swipe.
+    fn start_brightness_swipe(&mut self, slot: u32) -> Result<()> {
+        self.contacts.insert(slot, Contact::Swipe);
+        self.swipe = Some(Swipe::new(
+            SwipeKind::Brightness,
+            self.swipe_centroid(),
+            f64::from(self.config.brightness_swipe_step_px),
+        ));
         Ok(())
     }
 
@@ -365,11 +384,12 @@ impl Runtime {
             return Ok(());
         }
         match swipe.kind {
-            SwipeKind::Volume => {
-                let key = if steps > 0 {
-                    Key::VolumeUp
-                } else {
-                    Key::VolumeDown
+            SwipeKind::Volume | SwipeKind::Brightness => {
+                let key = match (swipe.kind, steps > 0) {
+                    (SwipeKind::Volume, true) => Key::VolumeUp,
+                    (SwipeKind::Volume, false) => Key::VolumeDown,
+                    (_, true) => Key::BrightnessUp,
+                    (_, false) => Key::BrightnessDown,
                 };
                 for _ in 0..steps.unsigned_abs() {
                     self.keyboard.press(key)?;
