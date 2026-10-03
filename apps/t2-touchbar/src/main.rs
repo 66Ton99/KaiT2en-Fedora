@@ -46,6 +46,10 @@ use policy::{PersistentState, TimeoutLearner};
 use renderer::{Action, Canvas, Layout};
 use touchid::TouchIdState;
 
+/// How long the esc key stays lit after it was used on the dark bar, so even
+/// a quick tap is visible.
+const ESC_LINGER_MS: u64 = 150;
+
 static STOP: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn stop(_: i32) {
@@ -79,6 +83,8 @@ enum Contact {
     /// First finger, waiting whether a second one turns this into a swipe.
     Pending,
     Swipe,
+    /// Esc held on the dark bar; the bar stays dark.
+    DarkEsc,
 }
 
 /// A first touch held back for `two_finger_window_ms`. On the dark bar it
@@ -106,6 +112,9 @@ struct Runtime {
     positions: HashMap<u32, f64>,
     pending: Option<PendingTouch>,
     swipe: Option<Swipe>,
+    /// The dark bar currently lights only the esc key.
+    esc_shown: bool,
+    esc_hide_ms: Option<u64>,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -146,6 +155,8 @@ impl Runtime {
             positions: HashMap::new(),
             pending: None,
             swipe: None,
+            esc_shown: false,
+            esc_hide_ms: None,
             touches_armed: true,
             active_button: None,
             layout,
@@ -187,6 +198,8 @@ impl Runtime {
             self.learner.wake(now, &self.config);
         }
         self.visible = true;
+        self.esc_shown = false;
+        self.esc_hide_ms = None;
         if quarantine_touch {
             self.touches_armed = false;
         }
@@ -207,6 +220,8 @@ impl Runtime {
                 .auto_off(self.now_ms(), self.state.mode, &self.config);
         }
         self.visible = false;
+        self.esc_shown = false;
+        self.esc_hide_ms = None;
         self.canvas.clear();
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
@@ -245,10 +260,12 @@ impl Runtime {
             self.contacts.insert(slot, Contact::Cancelled);
             return Ok(());
         }
+        let button = self.layout.hit(x, y, self.canvas.height);
+        // The esc slot never moves, so it stays usable while the bar is dark.
         let button = if self.visible {
-            self.layout.hit(x, y, self.canvas.height)
+            button
         } else {
-            None
+            button.filter(|&index| self.is_esc(index))
         };
         self.pending = Some(PendingTouch {
             slot,
@@ -257,10 +274,14 @@ impl Runtime {
             button,
         });
         self.contacts.insert(slot, Contact::Pending);
-        if button.is_some() {
-            // Highlight at once; only the key event waits for the window.
-            self.active_button = button;
-            self.present_keys()?;
+        if let Some(index) = button {
+            if self.visible {
+                // Highlight at once; only the key event waits for the window.
+                self.active_button = button;
+                self.present_keys()?;
+            } else {
+                self.show_dark_esc(index)?;
+            }
         }
         Ok(())
     }
@@ -275,8 +296,12 @@ impl Runtime {
         self.contacts.insert(slot, Contact::Swipe);
         self.swipe = Some(Swipe::new(kind, self.swipe_centroid(), f64::from(step)));
         if pending.button.is_some() {
-            self.active_button = None;
-            self.present_keys()?;
+            if pending.dark {
+                self.hide_dark_esc()?;
+            } else {
+                self.active_button = None;
+                self.present_keys()?;
+            }
         }
         Ok(())
     }
@@ -310,6 +335,12 @@ impl Runtime {
             return Ok(());
         };
         self.pending = None;
+        if pending.dark && pending.button.is_some() {
+            self.contacts.insert(pending.slot, Contact::DarkEsc);
+            self.keyboard.press(Key::Esc)?;
+            self.haptic.click();
+            return Ok(());
+        }
         if pending.dark {
             self.contacts.insert(pending.slot, Contact::Wake);
             return self.wake(true);
@@ -324,6 +355,35 @@ impl Runtime {
                 Ok(())
             }
         }
+    }
+
+    fn show_dark_esc(&mut self, index: usize) -> Result<()> {
+        self.esc_hide_ms = None;
+        if self.esc_shown {
+            return Ok(());
+        }
+        self.canvas.single_key(&self.layout, index);
+        self.display
+            .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
+        self.backlight.set(self.config.active_brightness)?;
+        self.esc_shown = true;
+        Ok(())
+    }
+
+    fn hide_dark_esc(&mut self) -> Result<()> {
+        self.esc_hide_ms = None;
+        if !self.esc_shown || self.visible {
+            return Ok(());
+        }
+        self.esc_shown = false;
+        self.canvas.clear();
+        self.display
+            .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
+        self.backlight.set(0)
+    }
+
+    fn is_esc(&self, index: usize) -> bool {
+        self.layout.buttons[index].action == Action::Key(Key::Esc)
     }
 
     fn press_button(&mut self, index: usize, now: u64) -> Result<()> {
@@ -354,6 +414,14 @@ impl Runtime {
                 if let Some(index) = pending.button
                     && self.layout.hit(x, y, self.canvas.height) != Some(index)
                 {
+                    if pending.dark {
+                        // Slid off the dark esc slot: an ordinary wake touch.
+                        self.pending = Some(PendingTouch {
+                            button: None,
+                            ..pending
+                        });
+                        return self.hide_dark_esc();
+                    }
                     self.pending = None;
                     self.active_button = None;
                     self.contacts.insert(slot, Contact::Cancelled);
@@ -367,6 +435,18 @@ impl Runtime {
                     self.active_button = None;
                     self.contacts.insert(slot, Contact::Cancelled);
                     self.present_keys()?;
+                }
+                Ok(())
+            }
+            Some(Contact::DarkEsc) => {
+                if !self
+                    .layout
+                    .hit(x, y, self.canvas.height)
+                    .is_some_and(|index| self.is_esc(index))
+                {
+                    self.keyboard.release()?;
+                    self.contacts.insert(slot, Contact::Cancelled);
+                    self.hide_dark_esc()?;
                 }
                 Ok(())
             }
@@ -413,7 +493,12 @@ impl Runtime {
             Some(Contact::Pending) => {
                 // Lifted within the window: a plain tap.
                 if let Some(pending) = self.pending.take() {
-                    if pending.dark {
+                    if pending.dark && pending.button.is_some() {
+                        self.keyboard.press(Key::Esc)?;
+                        self.keyboard.release()?;
+                        self.haptic.click();
+                        self.esc_hide_ms = Some(now + ESC_LINGER_MS);
+                    } else if pending.dark {
                         self.wake(true)?;
                     } else if let Some(index) = pending.button {
                         self.press_button(index, now)?;
@@ -427,6 +512,10 @@ impl Runtime {
                 self.keyboard.release()?;
                 self.active_button = None;
                 self.present_keys()?;
+            }
+            Some(Contact::DarkEsc) => {
+                self.keyboard.release()?;
+                self.esc_hide_ms = Some(now + ESC_LINGER_MS);
             }
             Some(Contact::Swipe) => {
                 // The centroid would jump to the remaining finger, so the
@@ -516,6 +605,9 @@ impl Runtime {
     fn tick(&mut self) -> Result<()> {
         let now = self.now_ms();
         self.resolve_pending(now)?;
+        if self.esc_hide_ms.is_some_and(|deadline| now >= deadline) {
+            self.hide_dark_esc()?;
+        }
         self.toggle_mode_if_due(now)?;
         if self.touch_id == TouchIdState::Idle
             && self.visible
@@ -566,6 +658,9 @@ impl Runtime {
         }
         if let Some(pending) = self.pending {
             deadlines.push(pending.deadline_ms);
+        }
+        if let Some(deadline) = self.esc_hide_ms {
+            deadlines.push(deadline);
         }
         deadlines
             .into_iter()

@@ -232,38 +232,51 @@ impl Canvas {
 
     pub fn keys(&mut self, layout: &Layout, active: Option<usize>) {
         self.pixmap.fill(Color::BLACK);
+        for (index, button) in layout.buttons.iter().enumerate() {
+            self.button(button, active == Some(index));
+        }
+        self.flush();
+    }
+
+    /// Only one pressed key on an otherwise black bar, e.g. esc used while
+    /// the bar is dark.
+    pub fn single_key(&mut self, layout: &Layout, index: usize) {
+        self.pixmap.fill(Color::BLACK);
+        if let Some(button) = layout.buttons.get(index) {
+            self.button(button, true);
+        }
+        self.flush();
+    }
+
+    fn button(&mut self, button: &Button, active: bool) {
         let top = KEY_INSET;
         let bottom = f32::from(self.height) - KEY_INSET;
         let cy = f32::from(self.height) / 2.0;
-        for (index, button) in layout.buttons.iter().enumerate() {
-            let (left, right) = (f32::from(button.left), f32::from(button.right));
-            let background = if active == Some(index) {
-                let fill = self.color.scale(20);
-                self.fill(&rounded_rect(left, top, right, bottom, KEY_RADIUS), fill);
-                fill
-            } else {
-                BLACK
-            };
-            let half = KEY_OUTLINE / 2.0;
-            self.stroke(
-                &rounded_rect(
-                    left + half,
-                    top + half,
-                    right - half,
-                    bottom - half,
-                    KEY_RADIUS,
-                ),
-                self.color
-                    .scale(if active == Some(index) { 34 } else { 22 }),
-                KEY_OUTLINE,
-            );
-            let cx = (left + right) / 2.0;
-            match button.glyph {
-                Glyph::Text(text) => self.center_text(cx, cy, text, KEY_FONT_SIZE, self.color),
-                Glyph::Icon(icon) => self.icon(cx, cy, icon, background),
-            }
+        let (left, right) = (f32::from(button.left), f32::from(button.right));
+        let background = if active {
+            let fill = self.color.scale(20);
+            self.fill(&rounded_rect(left, top, right, bottom, KEY_RADIUS), fill);
+            fill
+        } else {
+            BLACK
+        };
+        let half = KEY_OUTLINE / 2.0;
+        self.stroke(
+            &rounded_rect(
+                left + half,
+                top + half,
+                right - half,
+                bottom - half,
+                KEY_RADIUS,
+            ),
+            self.color.scale(if active { 34 } else { 22 }),
+            KEY_OUTLINE,
+        );
+        let cx = (left + right) / 2.0;
+        match button.glyph {
+            Glyph::Text(text) => self.center_text(cx, cy, text, KEY_FONT_SIZE, self.color),
+            Glyph::Icon(icon) => self.icon(cx, cy, icon, background),
         }
-        self.flush();
     }
 
     pub fn touch_id(&mut self, state: &str, phase: u8) {
