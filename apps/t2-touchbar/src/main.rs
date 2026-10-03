@@ -6,6 +6,7 @@ mod display;
 mod gesture;
 mod haptic;
 mod keyboard;
+mod levels;
 mod policy;
 mod renderer;
 mod touchid;
@@ -42,13 +43,20 @@ use display::Display;
 use gesture::{Swipe, SwipeKind};
 use haptic::Haptic;
 use keyboard::VirtualKeyboard;
+use levels::Level;
 use policy::{PersistentState, TimeoutLearner};
-use renderer::{Action, Canvas, Layout};
+use renderer::{Action, Canvas, Layout, LevelKind};
 use touchid::TouchIdState;
 
 /// How long the esc key stays lit after it was used on the dark bar, so even
 /// a quick tap is visible.
 const ESC_LINGER_MS: u64 = 150;
+/// Swipe feedback stays a little after the fingers lift to show the result.
+const LEVEL_LINGER_MS: u64 = 700;
+/// The desktop applies a volume or brightness key asynchronously, so the
+/// value is read back repeatedly for a short while after each step.
+const LEVEL_POLL_MS: u64 = 80;
+const LEVEL_POLL_WINDOW_MS: u64 = 600;
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -113,8 +121,15 @@ struct Runtime {
     pending: Option<PendingTouch>,
     swipe: Option<Swipe>,
     /// The dark bar currently lights only the esc key.
-    esc_shown: bool,
-    esc_hide_ms: Option<u64>,
+    overlay_shown: bool,
+    overlay_hide_ms: Option<u64>,
+    /// Level feedback while a dark-bar swipe runs.
+    level_kind: Option<LevelKind>,
+    level: Level,
+    /// Leftmost and rightmost finger the feedback was last placed against.
+    level_fingers: (f64, f64),
+    level_poll_ms: Option<u64>,
+    level_poll_until_ms: u64,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -155,8 +170,13 @@ impl Runtime {
             positions: HashMap::new(),
             pending: None,
             swipe: None,
-            esc_shown: false,
-            esc_hide_ms: None,
+            overlay_shown: false,
+            overlay_hide_ms: None,
+            level_kind: None,
+            level: Level::default(),
+            level_fingers: (0.0, 0.0),
+            level_poll_ms: None,
+            level_poll_until_ms: 0,
             touches_armed: true,
             active_button: None,
             layout,
@@ -198,8 +218,10 @@ impl Runtime {
             self.learner.wake(now, &self.config);
         }
         self.visible = true;
-        self.esc_shown = false;
-        self.esc_hide_ms = None;
+        self.overlay_shown = false;
+        self.overlay_hide_ms = None;
+        self.level_kind = None;
+        self.level_poll_ms = None;
         if quarantine_touch {
             self.touches_armed = false;
         }
@@ -220,8 +242,10 @@ impl Runtime {
                 .auto_off(self.now_ms(), self.state.mode, &self.config);
         }
         self.visible = false;
-        self.esc_shown = false;
-        self.esc_hide_ms = None;
+        self.overlay_shown = false;
+        self.overlay_hide_ms = None;
+        self.level_kind = None;
+        self.level_poll_ms = None;
         self.canvas.clear();
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
@@ -295,13 +319,12 @@ impl Runtime {
         self.contacts.insert(pending.slot, Contact::Swipe);
         self.contacts.insert(slot, Contact::Swipe);
         self.swipe = Some(Swipe::new(kind, self.swipe_centroid(), f64::from(step)));
+        if pending.dark {
+            return self.begin_level(LevelKind::Volume);
+        }
         if pending.button.is_some() {
-            if pending.dark {
-                self.hide_dark_esc()?;
-            } else {
-                self.active_button = None;
-                self.present_keys()?;
-            }
+            self.active_button = None;
+            self.present_keys()?;
         }
         Ok(())
     }
@@ -315,7 +338,18 @@ impl Runtime {
             self.swipe_centroid(),
             f64::from(self.config.brightness_swipe_step_px),
         ));
-        Ok(())
+        self.begin_level(LevelKind::Brightness)
+    }
+
+    fn swipe_span(&self) -> (f64, f64) {
+        let xs = self
+            .contacts
+            .iter()
+            .filter(|(_, contact)| matches!(contact, Contact::Swipe))
+            .filter_map(|(slot, _)| self.positions.get(slot).copied());
+        xs.fold((f64::MAX, f64::MIN), |(first, last), x| {
+            (first.min(x), last.max(x))
+        })
     }
 
     fn swipe_centroid(&self) -> f64 {
@@ -358,28 +392,72 @@ impl Runtime {
     }
 
     fn show_dark_esc(&mut self, index: usize) -> Result<()> {
-        self.esc_hide_ms = None;
-        if self.esc_shown {
-            return Ok(());
-        }
+        self.level_kind = None;
         self.canvas.single_key(&self.layout, index);
+        self.present_overlay()
+    }
+
+    fn begin_level(&mut self, kind: LevelKind) -> Result<()> {
+        self.level_kind = Some(kind);
+        self.level = read_level(kind);
+        self.level_fingers = self.swipe_span();
+        self.render_level()
+    }
+
+    fn render_level(&mut self) -> Result<()> {
+        let Some(kind) = self.level_kind.filter(|_| !self.visible) else {
+            return Ok(());
+        };
+        self.canvas.level(
+            kind,
+            self.level.percent,
+            self.level.muted,
+            (self.level_fingers.0 as f32, self.level_fingers.1 as f32),
+        );
+        self.present_overlay()
+    }
+
+    /// Shows whatever the canvas holds on the otherwise dark bar.
+    fn present_overlay(&mut self) -> Result<()> {
+        self.overlay_hide_ms = None;
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
-        self.backlight.set(self.config.active_brightness)?;
-        self.esc_shown = true;
+        if !self.overlay_shown {
+            self.backlight.set(self.config.active_brightness)?;
+            self.overlay_shown = true;
+        }
         Ok(())
     }
 
-    fn hide_dark_esc(&mut self) -> Result<()> {
-        self.esc_hide_ms = None;
-        if !self.esc_shown || self.visible {
+    fn hide_overlay(&mut self) -> Result<()> {
+        self.overlay_hide_ms = None;
+        self.level_kind = None;
+        self.level_poll_ms = None;
+        if !self.overlay_shown || self.visible {
             return Ok(());
         }
-        self.esc_shown = false;
+        self.overlay_shown = false;
         self.canvas.clear();
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
         self.backlight.set(0)
+    }
+
+    fn poll_level(&mut self, now: u64) -> Result<()> {
+        self.level_poll_ms = (now < self.level_poll_until_ms).then_some(now + LEVEL_POLL_MS);
+        let Some(kind) = self.level_kind else {
+            return Ok(());
+        };
+        let level = read_level(kind);
+        if level == self.level {
+            return Ok(());
+        }
+        self.level = level;
+        // Keep a lingering overlay alive until the value has settled.
+        let hide = self.overlay_hide_ms;
+        self.render_level()?;
+        self.overlay_hide_ms = hide.map(|deadline| deadline.max(now + LEVEL_POLL_MS));
+        Ok(())
     }
 
     fn is_esc(&self, index: usize) -> bool {
@@ -420,7 +498,7 @@ impl Runtime {
                             button: None,
                             ..pending
                         });
-                        return self.hide_dark_esc();
+                        return self.hide_overlay();
                     }
                     self.pending = None;
                     self.active_button = None;
@@ -446,7 +524,7 @@ impl Runtime {
                 {
                     self.keyboard.release()?;
                     self.contacts.insert(slot, Contact::Cancelled);
-                    self.hide_dark_esc()?;
+                    self.hide_overlay()?;
                 }
                 Ok(())
             }
@@ -460,12 +538,24 @@ impl Runtime {
             return Ok(());
         };
         let steps = swipe.advance(centroid);
+        let kind = swipe.kind;
+        let span = self.swipe_span();
+        if self.level_kind.is_some()
+            && ((span.0 - self.level_fingers.0).abs() >= 3.0
+                || (span.1 - self.level_fingers.1).abs() >= 3.0)
+        {
+            // The feedback follows the fingers.
+            self.level_fingers = span;
+            self.render_level()?;
+        }
         if steps == 0 {
             return Ok(());
         }
-        match swipe.kind {
+        match kind {
             SwipeKind::Volume | SwipeKind::Brightness => {
-                let key = match (swipe.kind, steps > 0) {
+                self.level_poll_ms = Some(now + LEVEL_POLL_MS);
+                self.level_poll_until_ms = now + LEVEL_POLL_WINDOW_MS;
+                let key = match (kind, steps > 0) {
                     (SwipeKind::Volume, true) => Key::VolumeUp,
                     (SwipeKind::Volume, false) => Key::VolumeDown,
                     (_, true) => Key::BrightnessUp,
@@ -497,7 +587,7 @@ impl Runtime {
                         self.keyboard.press(Key::Esc)?;
                         self.keyboard.release()?;
                         self.haptic.click();
-                        self.esc_hide_ms = Some(now + ESC_LINGER_MS);
+                        self.overlay_hide_ms = Some(now + ESC_LINGER_MS);
                     } else if pending.dark {
                         self.wake(true)?;
                     } else if let Some(index) = pending.button {
@@ -515,12 +605,15 @@ impl Runtime {
             }
             Some(Contact::DarkEsc) => {
                 self.keyboard.release()?;
-                self.esc_hide_ms = Some(now + ESC_LINGER_MS);
+                self.overlay_hide_ms = Some(now + ESC_LINGER_MS);
             }
             Some(Contact::Swipe) => {
                 // The centroid would jump to the remaining finger, so the
                 // first lift ends the swipe.
                 self.swipe = None;
+                if self.level_kind.is_some() {
+                    self.overlay_hide_ms = Some(now + LEVEL_LINGER_MS);
+                }
                 for contact in self.contacts.values_mut() {
                     if matches!(contact, Contact::Swipe) {
                         *contact = Contact::Cancelled;
@@ -605,8 +698,11 @@ impl Runtime {
     fn tick(&mut self) -> Result<()> {
         let now = self.now_ms();
         self.resolve_pending(now)?;
-        if self.esc_hide_ms.is_some_and(|deadline| now >= deadline) {
-            self.hide_dark_esc()?;
+        if self.level_poll_ms.is_some_and(|deadline| now >= deadline) {
+            self.poll_level(now)?;
+        }
+        if self.overlay_hide_ms.is_some_and(|deadline| now >= deadline) {
+            self.hide_overlay()?;
         }
         self.toggle_mode_if_due(now)?;
         if self.touch_id == TouchIdState::Idle
@@ -659,7 +755,10 @@ impl Runtime {
         if let Some(pending) = self.pending {
             deadlines.push(pending.deadline_ms);
         }
-        if let Some(deadline) = self.esc_hide_ms {
+        if let Some(deadline) = self.level_poll_ms {
+            deadlines.push(deadline);
+        }
+        if let Some(deadline) = self.overlay_hide_ms {
             deadlines.push(deadline);
         }
         deadlines
@@ -824,6 +923,13 @@ fn main() -> Result<()> {
 fn provides_fn(device: &InputDevice) -> bool {
     device.has_capability(DeviceCapability::Keyboard)
         && device.keyboard_has_key(Key::Fn as u32) == Ok(true)
+}
+
+fn read_level(kind: LevelKind) -> Level {
+    match kind {
+        LevelKind::Volume => levels::volume(),
+        LevelKind::Brightness => levels::brightness(),
+    }
 }
 
 fn is_touch_bar(name: &str) -> bool {
