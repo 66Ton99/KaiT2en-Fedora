@@ -53,6 +53,8 @@ is_supported_model() {
 	read -r model </sys/class/dmi/id/product_name
 	case "$model" in
 		MacBookPro15,1|MacBookPro16,1|MacBookPro16,4) return 0 ;;
+		# No hybrid graphics, but their 5K panel needs the same patched AMDGPU.
+		iMac20,1|iMac20,2) return 0 ;;
 		*) return 1 ;;
 	esac
 }
