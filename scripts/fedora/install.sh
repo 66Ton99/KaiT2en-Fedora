@@ -65,6 +65,7 @@ STEPS=(
 	install-plymouth-theme.sh
 	install-gdm-branding.sh
 	install-suspend-service.sh
+	install-rtc-sync.sh
 	install-apps.sh
 	install-t2-services-common.sh
 	install-t2-remote.sh

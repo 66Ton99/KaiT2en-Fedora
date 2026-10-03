@@ -129,7 +129,16 @@ pre_suspend() {
 	return 0
 }
 
+# The kernel never writes the t2smc RTC on x86. Refresh it on every resume so
+# a long suspend-only session cannot leave it stale for the next boot.
+sync_rtc() {
+	if ! hwclock --systohc --utc; then
+		log "could not write system time to the RTC"
+	fi
+}
+
 post_resume() {
+	sync_rtc
 	restore_unloaded_modules
 	return 0
 }
