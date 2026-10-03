@@ -77,6 +77,20 @@ ADD_ARGS=(
 	"mem_sleep_default=deep"
 )
 
+# The Ethernet controllers in iMacs and the iMac Pro do not survive forced
+# ASPM, so leave ASPM to the firmware there.
+model=""
+[[ -r /sys/class/dmi/id/product_name ]] &&
+	read -r model </sys/class/dmi/id/product_name
+if [[ "$model" == iMac* ]]; then
+	kept_args=()
+	for arg in "${ADD_ARGS[@]}"; do
+		[[ "$arg" == pcie_aspm=force ]] || kept_args+=("$arg")
+	done
+	ADD_ARGS=("${kept_args[@]}")
+	info "not forcing PCIe ASPM on $model"
+fi
+
 INITCALL_BLACKLIST="initcall_blacklist=cmos_init,magicmouse_driver_init"
 BLACKLIST_MODULES=(
 	acpi_tad
