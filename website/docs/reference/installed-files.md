@@ -51,9 +51,10 @@ The installer also writes
 `/etc/kernel/install.d/39-kait2en-dkms-cleanup.install`. The hook removes stale
 DKMS build state before a kernel installation is retried.
 
-On the MacBookPro15,1, MacBookPro16,1 and MacBookPro16,4, the app installer also
-builds the AMDGPU module with the hybrid runtime-PM patches and installs it for
-the running kernel at:
+On the MacBookPro15,1, MacBookPro16,1, MacBookPro16,4, iMac20,1 and iMac20,2,
+the installer also builds the AMDGPU module with the patches from
+`patches/runtime/gpu-runtime-pm` (hybrid runtime PM and 5K iMac panel support)
+and installs it for the running kernel at:
 
 ```text
 /usr/lib/modules/<kernel>/updates/kait2en-gpu-runtime-pm/amdgpu.ko.xz
@@ -63,17 +64,19 @@ The corresponding modprobe configuration is installed as
 `/usr/lib/modprobe.d/kait2en-gpu-runtime-pm.conf`.
 
 Unlike the T2 modules above, this patched AMDGPU module is not built by DKMS.
-After a Fedora kernel update, boot the new kernel before rebuilding it for its
-exact release:
+Instead, the installer copies the build script and the patches to
+`/usr/local/libexec/kait2en/gpu-runtime-pm/` and writes
+`/etc/kernel/install.d/45-kait2en-gpu-runtime-pm.install`. When Fedora installs
+a new kernel, the hook builds the module for it after `40-dkms.install` and
+before `50-dracut.install`, and logs to `/var/log/kait2en-gpu-runtime-pm.log`.
+A failed build never aborts the kernel update. When a kernel is removed, the
+hook deletes its module. To rebuild for a specific kernel by hand:
 
 ```bash
-cd /usr/local/src/KaiT2en-Fedora
-sudo ./scripts/fedora/install-gpu-runtime-pm.sh
-sudo reboot
+sudo /usr/local/libexec/kait2en/gpu-runtime-pm/install-gpu-runtime-pm.sh install <kernel>
 ```
 
-The script installs the module for the running kernel and rebuilds that
-kernel's initramfs.
+Running the installer again refreshes the copy with the current patches.
 
 ## Kernel arguments
 
@@ -87,18 +90,21 @@ grubby --info=DEFAULT
 KAIT2EN adds these arguments to every installed kernel through `grubby`:
 
 ```text
+amdgpu.aspm=1
 intel_iommu=on
 iommu=pt
 pm_async=off
 brcmfmac.p2pon=0
 pcie_aspm=force
 pcie_aspm.policy=powersave
-pcie_ports=native
-pci=noaer
+pcie_ports=compat
 mem_sleep_default=deep
 initcall_blacklist=cmos_init,magicmouse_driver_init
 module_blacklist=acpi_tad,applesmc,macsmc,hid_apple,hid_appletb_bl,hid_appletb_kbd,hid_magicmouse,appletbdrm,apple_bce,apple_mfi_fastcharge,apple_gmux
 ```
+
+On iMacs and the iMac Pro, `pcie_aspm=force` is left out, because their
+Ethernet controllers do not work with forced ASPM.
 
 On every T2 Mac, the installer enables HuC firmware loading for the Intel GPU:
 

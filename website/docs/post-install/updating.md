@@ -23,7 +23,10 @@ Review its output and reboot after it completes successfully.
 ## Updating Fedora
 
 You just update Fedora like everyone else. DKMS will notice and recompile our modules against the
-latest kernel. It's always worth visiting the [KAIT2EN community on Discord](https://discord.gg/AGfjRk4ydj) or [Matrix](https://matrix.to/#/%23kait2en:matrix.org) to make sure you won't run into issues like kernel regressions.
+latest kernel. On Macs that use the patched AMDGPU module (MacBookPro15,1, 16,1, 16,4 and the 5K
+iMacs), a KAIT2EN hook also rebuilds it for the new kernel. This needs network access and makes
+kernel updates take a few minutes longer. dnf stays quiet meanwhile; the build log is in
+`/var/log/kait2en-gpu-runtime-pm.log`. See [How to configure GPUs](configuring-gpus.md) if it fails. It's always worth visiting the [KAIT2EN community on Discord](https://discord.gg/AGfjRk4ydj) or [Matrix](https://matrix.to/#/%23kait2en:matrix.org) to make sure you won't run into issues like kernel regressions.
 
 ## So you messed up?
 
