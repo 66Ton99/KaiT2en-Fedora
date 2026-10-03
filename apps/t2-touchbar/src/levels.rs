@@ -3,7 +3,62 @@
 //! Current volume and display brightness for the swipe feedback. The daemon
 //! only sends keys; the desktop applies them, so these are read back.
 
-use std::{fs, path::Path, process::Command};
+use std::{
+    fs,
+    io::Write,
+    os::unix::net::UnixStream,
+    path::Path,
+    process::Command,
+    sync::mpsc::{self, Receiver, Sender},
+    thread,
+};
+
+use anyhow::Result;
+
+use crate::renderer::LevelKind;
+
+/// Reads levels on a worker thread: `wpctl` takes 10-20 ms, which would
+/// otherwise stall touch handling in the middle of a swipe.
+pub struct Reader {
+    requests: Sender<LevelKind>,
+    results: Receiver<(LevelKind, Level)>,
+}
+
+impl Reader {
+    /// Returns the reader and a socket that becomes readable with results.
+    pub fn spawn() -> Result<(Self, UnixStream)> {
+        let (requests, jobs) = mpsc::channel::<LevelKind>();
+        let (done, results) = mpsc::channel();
+        let (mut wake_writer, wake_reader) = UnixStream::pair()?;
+        thread::Builder::new()
+            .name("level-reader".to_owned())
+            .spawn(move || {
+                while let Ok(mut kind) = jobs.recv() {
+                    // Only the newest request matters.
+                    while let Ok(newer) = jobs.try_recv() {
+                        kind = newer;
+                    }
+                    let level = match kind {
+                        LevelKind::Volume => volume(),
+                        LevelKind::Brightness => brightness(),
+                    };
+                    if done.send((kind, level)).is_err() {
+                        return;
+                    }
+                    let _ = wake_writer.write_all(&[1]);
+                }
+            })?;
+        Ok((Self { requests, results }, wake_reader))
+    }
+
+    pub fn request(&self, kind: LevelKind) {
+        let _ = self.requests.send(kind);
+    }
+
+    pub fn results(&self) -> impl Iterator<Item = (LevelKind, Level)> + '_ {
+        self.results.try_iter()
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Level {

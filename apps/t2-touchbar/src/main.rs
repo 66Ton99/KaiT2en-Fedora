@@ -20,7 +20,7 @@ use std::{
     io::Read,
     os::{
         fd::{AsFd, AsRawFd, OwnedFd},
-        unix::fs::OpenOptionsExt,
+        unix::{fs::OpenOptionsExt, net::UnixStream},
     },
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
@@ -45,7 +45,7 @@ use display::Display;
 use gesture::{Swipe, SwipeKind};
 use haptic::Haptic;
 use keyboard::VirtualKeyboard;
-use levels::Level;
+use levels::{Level, Reader as LevelReader};
 use mpris::Mpris;
 use policy::{PersistentState, TimeoutLearner};
 use renderer::{Action, Canvas, Layout, LevelKind};
@@ -155,6 +155,13 @@ struct Runtime {
     level_fingers: (f64, f64),
     level_poll_ms: Option<u64>,
     level_poll_until_ms: u64,
+    /// The level feedback changed and is drawn once the pending input is
+    /// processed, so a burst of touch events costs one frame.
+    level_dirty: bool,
+    /// Last values seen per kind, shown until a fresh read arrives.
+    level_cache: [Level; 2],
+    level_reader: LevelReader,
+    level_wake: UnixStream,
     key_level: u32,
     media_hold: Option<MediaHold>,
     mpris: Mpris,
@@ -182,6 +189,8 @@ impl Runtime {
         let physical_escape = has_physical_escape();
         let layout = Layout::new(state.mode, width, physical_escape);
         let haptic = Haptic::open(config.haptic_feedback);
+        let (level_reader, level_wake) = LevelReader::spawn()?;
+        level_wake.set_nonblocking(true)?;
         Ok(Self {
             config,
             state,
@@ -204,6 +213,10 @@ impl Runtime {
             level_fingers: (0.0, 0.0),
             level_poll_ms: None,
             level_poll_until_ms: 0,
+            level_dirty: false,
+            level_cache: [Level::default(); 2],
+            level_reader,
+            level_wake,
             key_level: 100,
             media_hold: None,
             mpris: Mpris::default(),
@@ -439,6 +452,7 @@ impl Runtime {
     fn show_dark_esc(&mut self, index: usize) -> Result<()> {
         self.refresh_key_level();
         self.level_kind = None;
+        self.overlay_hide_ms = None;
         self.canvas.single_key(&self.layout, index);
         self.present_overlay()
     }
@@ -446,12 +460,19 @@ impl Runtime {
     fn begin_level(&mut self, kind: LevelKind) -> Result<()> {
         self.refresh_key_level();
         self.level_kind = Some(kind);
-        self.level = read_level(kind);
+        self.level = self.level_cache[cache_slot(kind)];
+        self.level_reader.request(kind);
         self.level_fingers = self.swipe_span();
-        self.render_level()
+        self.overlay_hide_ms = None;
+        self.level_dirty = true;
+        Ok(())
     }
 
-    fn render_level(&mut self) -> Result<()> {
+    /// Draws the level feedback if anything changed since the last frame.
+    fn flush_level(&mut self) -> Result<()> {
+        if !std::mem::take(&mut self.level_dirty) {
+            return Ok(());
+        }
         let Some(kind) = self.level_kind.filter(|_| !self.visible) else {
             return Ok(());
         };
@@ -466,7 +487,6 @@ impl Runtime {
 
     /// Shows whatever the canvas holds on the otherwise dark bar.
     fn present_overlay(&mut self) -> Result<()> {
-        self.overlay_hide_ms = None;
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
         if !self.overlay_shown {
@@ -490,21 +510,28 @@ impl Runtime {
         self.backlight.set(0)
     }
 
-    fn poll_level(&mut self, now: u64) -> Result<()> {
+    fn poll_level(&mut self, now: u64) {
         self.level_poll_ms = (now < self.level_poll_until_ms).then_some(now + LEVEL_POLL_MS);
-        let Some(kind) = self.level_kind else {
-            return Ok(());
-        };
-        let level = read_level(kind);
-        if level == self.level {
-            return Ok(());
+        if let Some(kind) = self.level_kind {
+            self.level_reader.request(kind);
         }
-        self.level = level;
-        // Keep a lingering overlay alive until the value has settled.
-        let hide = self.overlay_hide_ms;
-        self.render_level()?;
-        self.overlay_hide_ms = hide.map(|deadline| deadline.max(now + LEVEL_POLL_MS));
-        Ok(())
+    }
+
+    fn levels_read(&mut self) {
+        let now = self.now_ms();
+        let results: Vec<_> = self.level_reader.results().collect();
+        for (kind, level) in results {
+            self.level_cache[cache_slot(kind)] = level;
+            if self.level_kind != Some(kind) || level == self.level {
+                continue;
+            }
+            self.level = level;
+            self.level_dirty = true;
+            // Keep a lingering overlay alive until the value has settled.
+            self.overlay_hide_ms = self
+                .overlay_hide_ms
+                .map(|deadline| deadline.max(now + LEVEL_POLL_MS));
+        }
     }
 
     /// Follows the keyboard backlight; returns whether the level changed.
@@ -527,10 +554,10 @@ impl Runtime {
             return Ok(());
         }
         if self.visible {
-            self.present_keys()
-        } else {
-            self.render_level()
+            return self.present_keys();
         }
+        self.level_dirty = true;
+        Ok(())
     }
 
     /// `Some(true)` for next, `Some(false)` for previous.
@@ -681,7 +708,7 @@ impl Runtime {
         {
             // The feedback follows the fingers.
             self.level_fingers = span;
-            self.render_level()?;
+            self.level_dirty = true;
         }
         if steps == 0 {
             return Ok(());
@@ -861,7 +888,7 @@ impl Runtime {
         let now = self.now_ms();
         self.resolve_pending(now)?;
         if self.level_poll_ms.is_some_and(|deadline| now >= deadline) {
-            self.poll_level(now)?;
+            self.poll_level(now);
         }
         if self.overlay_hide_ms.is_some_and(|deadline| now >= deadline) {
             self.hide_overlay()?;
@@ -1003,6 +1030,11 @@ fn main() -> Result<()> {
                 events: libc::POLLIN,
                 revents: 0,
             },
+            pollfd {
+                fd: runtime.level_wake.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
         let result = unsafe {
             libc::poll(
@@ -1027,6 +1059,12 @@ fn main() -> Result<()> {
             let mut discard = [0u8; 64];
             while kbd_wake.read(&mut discard).is_ok() {}
             runtime.keyboard_backlight_changed()?;
+        }
+
+        if poll_fds[4].revents & libc::POLLIN != 0 {
+            let mut discard = [0u8; 64];
+            while (&runtime.level_wake).read(&mut discard).is_ok() {}
+            runtime.levels_read();
         }
 
         if poll_fds[0].revents & libc::POLLIN != 0 {
@@ -1085,6 +1123,7 @@ fn main() -> Result<()> {
             }
         }
         runtime.tick()?;
+        runtime.flush_level()?;
     }
     runtime.go_dark(false)?;
     Ok(())
@@ -1095,10 +1134,10 @@ fn provides_fn(device: &InputDevice) -> bool {
         && device.keyboard_has_key(Key::Fn as u32) == Ok(true)
 }
 
-fn read_level(kind: LevelKind) -> Level {
+fn cache_slot(kind: LevelKind) -> usize {
     match kind {
-        LevelKind::Volume => levels::volume(),
-        LevelKind::Brightness => levels::brightness(),
+        LevelKind::Volume => 0,
+        LevelKind::Brightness => 1,
     }
 }
 
