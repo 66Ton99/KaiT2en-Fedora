@@ -42,3 +42,8 @@ requirement and adds no restriction beyond section 7(b).
   tiny-dfr. Its MIT notice is preserved in
   `apps/t2-touchbar/THIRD-PARTY-NOTICES.md`; the combined KAIT2EN program is
   distributed under GPL-3.0-or-later.
+
+## Trademarks
+
+Touch ID is a trademark of Apple Inc. This project is not affiliated with Apple. Apple names are used only to
+describe the hardware and features this project supports.

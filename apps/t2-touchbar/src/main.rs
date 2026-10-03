@@ -61,6 +61,10 @@ const LEVEL_LINGER_MS: u64 = 700;
 const LEVEL_POLL_MS: u64 = 80;
 const LEVEL_POLL_WINDOW_MS: u64 = 600;
 /// Holding previous/next this long from touch-down starts seeking.
+/// The Touch ID arrow swings towards the sensor once per period, at about
+/// 30 fps.
+const ARROW_PERIOD_MS: u64 = 1_500;
+const ARROW_FRAME_MS: u64 = 33;
 const MEDIA_HOLD_MS: u64 = 450;
 const SEEK_INTERVAL_MS: u64 = 250;
 /// Seek steps grow after this long, so long distances stay quick.
@@ -163,8 +167,7 @@ struct Runtime {
     keyboard: VirtualKeyboard,
     haptic: Haptic,
     physical_escape: bool,
-    animation_phase: u8,
-    animation_rising: bool,
+    animation_start_ms: u64,
     next_animation_ms: Option<u64>,
 }
 
@@ -213,8 +216,7 @@ impl Runtime {
             keyboard: VirtualKeyboard::open()?,
             haptic,
             physical_escape,
-            animation_phase: 0,
-            animation_rising: true,
+            animation_start_ms: 0,
             next_animation_ms: None,
         })
     }
@@ -825,17 +827,32 @@ impl Runtime {
             return self.go_dark(false);
         }
         self.visible = true;
-        self.animation_phase = 8;
-        self.animation_rising = false;
-        self.next_animation_ms = matches!(state, TouchIdState::Waiting | TouchIdState::Scanning)
-            .then(|| self.now_ms() + animation_interval(state));
-        self.render_touch_id()?;
+        let now = self.now_ms();
+        // Waiting, scanning and retry share the arrow; keep its swing smooth
+        // across those transitions.
+        if self.next_animation_ms.is_none() {
+            self.animation_start_ms = now;
+        }
+        self.next_animation_ms = None;
+        self.render_touch_id(now)?;
         self.backlight.set(self.config.active_brightness)
     }
 
-    fn render_touch_id(&mut self) -> Result<()> {
-        self.canvas
-            .touch_id(self.touch_id.as_str(), self.animation_phase);
+    /// Draws the prompt; while it shows an arrow, schedules the next frame.
+    fn render_touch_id(&mut self, now: u64) -> Result<()> {
+        let animated = matches!(
+            self.touch_id,
+            TouchIdState::Waiting | TouchIdState::Scanning | TouchIdState::Retry
+        );
+        let nudge = if animated {
+            self.next_animation_ms = Some(now + ARROW_FRAME_MS);
+            let elapsed = now.saturating_sub(self.animation_start_ms) % ARROW_PERIOD_MS;
+            arrow_nudge(elapsed as f32 / ARROW_PERIOD_MS as f32)
+        } else {
+            self.next_animation_ms = None;
+            0.0
+        };
+        self.canvas.touch_id(self.touch_id.as_str(), nudge);
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)
     }
@@ -870,19 +887,7 @@ impl Runtime {
             .next_animation_ms
             .is_some_and(|deadline| now >= deadline)
         {
-            if self.animation_rising {
-                self.animation_phase += 1;
-                if self.animation_phase >= 8 {
-                    self.animation_rising = false;
-                }
-            } else {
-                self.animation_phase = self.animation_phase.saturating_sub(1);
-                if self.animation_phase == 0 {
-                    self.animation_rising = true;
-                }
-            }
-            self.render_touch_id()?;
-            self.next_animation_ms = Some(now + animation_interval(self.touch_id));
+            self.render_touch_id(now)?;
         }
         Ok(())
     }
@@ -924,12 +929,9 @@ impl Runtime {
     }
 }
 
-fn animation_interval(state: TouchIdState) -> u64 {
-    if state == TouchIdState::Scanning {
-        55
-    } else {
-        110
-    }
+/// Eased swing: rest at 0, fully nudged halfway through the period.
+fn arrow_nudge(phase: f32) -> f32 {
+    (1.0 - (phase * std::f32::consts::TAU).cos()) / 2.0
 }
 
 fn main() -> Result<()> {
