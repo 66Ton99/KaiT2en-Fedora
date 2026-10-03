@@ -677,19 +677,6 @@ static void appletbdrm_primary_plane_helper_atomic_disable(struct drm_plane *pla
 	drm_dev_exit(idx);
 }
 
-static void appletbdrm_primary_plane_reset(struct drm_plane *plane)
-{
-	struct appletbdrm_plane_state *appletbdrm_state;
-
-	WARN_ON(plane->state);
-
-	appletbdrm_state = kzalloc_obj(*appletbdrm_state);
-	if (!appletbdrm_state)
-		return;
-
-	__drm_gem_reset_shadow_plane(plane, &appletbdrm_state->base);
-}
-
 static struct drm_plane_state *appletbdrm_primary_plane_duplicate_state(struct drm_plane *plane)
 {
 	struct drm_shadow_plane_state *new_shadow_plane_state;
@@ -729,6 +716,23 @@ static void appletbdrm_primary_plane_destroy_state(struct drm_plane *plane,
 	__drm_gem_destroy_shadow_plane_state(&appletbdrm_state->base);
 
 	kfree(appletbdrm_state);
+}
+
+static void appletbdrm_primary_plane_reset(struct drm_plane *plane)
+{
+	struct appletbdrm_plane_state *appletbdrm_state;
+
+	/* drm_atomic_helper_resume() resets with the old state still attached */
+	if (plane->state) {
+		appletbdrm_primary_plane_destroy_state(plane, plane->state);
+		plane->state = NULL;
+	}
+
+	appletbdrm_state = kzalloc_obj(*appletbdrm_state);
+	if (!appletbdrm_state)
+		return;
+
+	__drm_gem_reset_shadow_plane(plane, &appletbdrm_state->base);
 }
 
 static const struct drm_plane_helper_funcs appletbdrm_primary_plane_helper_funcs = {
