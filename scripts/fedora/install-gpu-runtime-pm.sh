@@ -3,12 +3,11 @@
 source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 
 require_root
-require_repo_root
 require_fedora
 require_command depmod dnf dracut find modinfo rm rpm
 
 usage() {
-	printf 'Usage: %s [install|remove] [KERNEL_RELEASE] [--defer-initramfs]\n' "$0" >&2
+	printf 'Usage: %s [install|remove] [KERNEL_RELEASE] [--defer-initramfs] [--no-deps]\n' "$0" >&2
 	exit 2
 }
 
@@ -17,9 +16,11 @@ shift $(( $# > 0 ? 1 : 0 ))
 KVER=$(kernel_release)
 KVER_SET=0
 DEFER_INITRAMFS=0
+SKIP_DEPS=0
 for argument in "$@"; do
 	case "$argument" in
 		--defer-initramfs) DEFER_INITRAMFS=1 ;;
+		--no-deps) SKIP_DEPS=1 ;;
 		--*) usage ;;
 		*)
 			((KVER_SET == 0)) || usage
@@ -31,7 +32,17 @@ done
 MODULE_DIR="/usr/lib/modules/$KVER/updates/kait2en-gpu-runtime-pm"
 MODPROBE_CONF="/usr/lib/modprobe.d/kait2en-gpu-runtime-pm.conf"
 LEGACY_DRACUT_CONF="/etc/dracut.conf.d/90-kait2en-gpu-runtime-pm.conf"
-PATCH_DIR="$REPO_ROOT/patches/runtime/gpu-runtime-pm"
+HOOK_HOME="/usr/local/libexec/kait2en/gpu-runtime-pm"
+KERNEL_INSTALL_HOOK="/etc/kernel/install.d/45-kait2en-gpu-runtime-pm.install"
+if [[ -f "$SCRIPT_DIR/patches/series" ]]; then
+	# The copy the kernel-install hook runs carries its own patches.
+	PATCH_DIR="$SCRIPT_DIR/patches"
+	FROM_REPO=0
+else
+	require_repo_root
+	PATCH_DIR="$REPO_ROOT/patches/runtime/gpu-runtime-pm"
+	FROM_REPO=1
+fi
 PATCH_SERIES="$PATCH_DIR/series"
 PATCH_FILES=()
 
@@ -57,6 +68,55 @@ remove_modules() {
 	if [[ -d "/usr/lib/modules/$KVER" ]]; then
 		dracut --force "/boot/initramfs-$KVER.img" "$KVER"
 	fi
+}
+
+remove_kernel_hook() {
+	rm -f "$KERNEL_INSTALL_HOOK"
+	rm -rf "$HOOK_HOME"
+}
+
+# Rebuild AMDGPU for every kernel dnf installs later: after 40-dkms has
+# built t2gmux, before 50-depmod and 50-dracut pick the module up. The
+# hook never fails the transaction and cannot call dnf from inside it.
+install_kernel_hook() {
+	local entry
+
+	rm -rf "$HOOK_HOME"
+	install -d -m 0755 "$HOOK_HOME/patches"
+	install -m 0755 "$SCRIPT_DIR/install-gpu-runtime-pm.sh" "$HOOK_HOME/"
+	install -m 0644 "$SCRIPT_DIR/lib.sh" "$HOOK_HOME/"
+	install -m 0644 "$PATCH_SERIES" "$HOOK_HOME/patches/series"
+	for entry in "${PATCH_FILES[@]}"; do
+		install -m 0644 "$entry" "$HOOK_HOME/patches/"
+	done
+
+	install -d -m 0755 "${KERNEL_INSTALL_HOOK%/*}"
+	cat >"$KERNEL_INSTALL_HOOK" <<HOOK
+#!/usr/bin/bash
+
+command=\${1:-}
+kernelver=\${2:-}
+log=/var/log/kait2en-gpu-runtime-pm.log
+
+[[ -n "\$kernelver" ]] || exit 0
+case "\$command" in
+	add)
+		printf '[kait2en] building GPU runtime PM AMDGPU for %s\\n' "\$kernelver"
+		if ! "$HOOK_HOME/install-gpu-runtime-pm.sh" install "\$kernelver" \\
+				--defer-initramfs --no-deps >>"\$log" 2>&1; then
+			printf '[kait2en] GPU runtime PM build for %s failed, see %s\\n' \\
+				"\$kernelver" "\$log"
+			printf '[kait2en] retry with: sudo %s install %s\\n' \\
+				"$HOOK_HOME/install-gpu-runtime-pm.sh" "\$kernelver"
+		fi
+		;;
+	remove)
+		rm -rf "/usr/lib/modules/\$kernelver/updates/kait2en-gpu-runtime-pm"
+		;;
+esac
+exit 0
+HOOK
+	chmod 0755 "$KERNEL_INSTALL_HOOK"
 }
 
 apply_patch_if_needed() {
@@ -96,6 +156,7 @@ case "$ACTION" in
 	remove)
 		require_command dracut rm
 		remove_modules
+		remove_kernel_hook
 		exit 0
 		;;
 	install) ;;
@@ -121,7 +182,7 @@ else
 	development_package=("kernel-devel-$KVER")
 fi
 
-dnf install -y \
+((SKIP_DEPS)) || dnf install -y \
 	"${development_package[@]}" \
 	cpio \
 	curl \
@@ -139,7 +200,9 @@ if ((local_kernel_tree == 0)); then
 	[[ -d "$build_tree" ]] || fail "kernel-devel is unavailable for $KVER"
 fi
 
-if ! modinfo -k "$KVER" t2gmux >/dev/null 2>&1; then
+# Inside kernel-install, 50-depmod has not indexed the DKMS modules yet.
+if ! modinfo -k "$KVER" t2gmux >/dev/null 2>&1 &&
+	[[ -z $(find "/usr/lib/modules/$KVER" -name 't2gmux.ko*' -print -quit 2>/dev/null) ]]; then
 	fail "t2gmux is not installed for $KVER"
 fi
 
@@ -221,6 +284,8 @@ depmod -a "$KVER"
 if ((DEFER_INITRAMFS == 0)); then
 	dracut --force "/boot/initramfs-$KVER.img" "$KVER"
 fi
+
+((FROM_REPO == 0)) || install_kernel_hook
 
 info "GPU runtime PM modules installed for $KVER"
 info "reboot into $KVER, then verify with: modinfo -n amdgpu"
