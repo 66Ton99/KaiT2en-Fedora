@@ -26,3 +26,8 @@ two_finger_window_ms = 100
 volume_swipe_step_px = 40
 brightness_swipe_step_px = 40
 mode_swipe_px = 160
+
+# Dim the key glyphs along with the keyboard backlight (read from
+# /sys/class/leds/*kbd_backlight, updated on UPower changes). The bar keeps a
+# readable minimum while the keyboard backlight is off.
+follow_keyboard_backlight = true

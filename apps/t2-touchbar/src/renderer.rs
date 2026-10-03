@@ -190,6 +190,9 @@ pub struct Canvas {
     pub pixels: Vec<u32>,
     pixmap: Pixmap,
     font: FontVec,
+    /// The configured key color at full intensity.
+    base: Rgb,
+    /// `base` dimmed to the current key level.
     color: Rgb,
 }
 
@@ -226,10 +229,16 @@ impl Canvas {
             pixels: vec![0; width as usize * height as usize],
             pixmap,
             font: load_font()?,
+            base: Rgb::from_u32(key_color),
             color: Rgb::from_u32(key_color),
         };
         canvas.clear();
         Ok(canvas)
+    }
+
+    /// Dims everything drawn in the key color, in percent of full intensity.
+    pub fn set_level(&mut self, percent: u32) {
+        self.color = self.base.scale(percent.min(100));
     }
 
     pub fn clear(&mut self) {

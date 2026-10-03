@@ -27,6 +27,10 @@ the GNOME lock screen in the running user session.
 
 Accepted key presses use `t2_trackpad_actuator` to give a bit of haptic feedback.
 
+The panel itself only has two brightness steps. The key glyphs are therefore
+dimmed in software to follow the keyboard backlight, so the bar and the keys
+look alike; a readable minimum remains while the keyboard backlight is off.
+
 ## Installation
 
 For a standalone Fedora installation from the repository, run:

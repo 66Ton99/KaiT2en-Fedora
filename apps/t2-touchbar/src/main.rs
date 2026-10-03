@@ -5,6 +5,7 @@ mod config;
 mod display;
 mod gesture;
 mod haptic;
+mod kbdlight;
 mod keyboard;
 mod levels;
 mod policy;
@@ -130,6 +131,7 @@ struct Runtime {
     level_fingers: (f64, f64),
     level_poll_ms: Option<u64>,
     level_poll_until_ms: u64,
+    key_level: u32,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -177,6 +179,7 @@ impl Runtime {
             level_fingers: (0.0, 0.0),
             level_poll_ms: None,
             level_poll_until_ms: 0,
+            key_level: 100,
             touches_armed: true,
             active_button: None,
             layout,
@@ -214,6 +217,7 @@ impl Runtime {
             return Ok(());
         }
         let now = self.now_ms();
+        self.refresh_key_level();
         if !self.visible {
             self.learner.wake(now, &self.config);
         }
@@ -392,12 +396,14 @@ impl Runtime {
     }
 
     fn show_dark_esc(&mut self, index: usize) -> Result<()> {
+        self.refresh_key_level();
         self.level_kind = None;
         self.canvas.single_key(&self.layout, index);
         self.present_overlay()
     }
 
     fn begin_level(&mut self, kind: LevelKind) -> Result<()> {
+        self.refresh_key_level();
         self.level_kind = Some(kind);
         self.level = read_level(kind);
         self.level_fingers = self.swipe_span();
@@ -458,6 +464,32 @@ impl Runtime {
         self.render_level()?;
         self.overlay_hide_ms = hide.map(|deadline| deadline.max(now + LEVEL_POLL_MS));
         Ok(())
+    }
+
+    /// Follows the keyboard backlight; returns whether the level changed.
+    fn refresh_key_level(&mut self) -> bool {
+        let level = if self.config.follow_keyboard_backlight {
+            kbdlight::key_level().unwrap_or(100)
+        } else {
+            100
+        };
+        if level == self.key_level {
+            return false;
+        }
+        self.key_level = level;
+        self.canvas.set_level(level);
+        true
+    }
+
+    fn keyboard_backlight_changed(&mut self) -> Result<()> {
+        if !self.refresh_key_level() || self.touch_id != TouchIdState::Idle {
+            return Ok(());
+        }
+        if self.visible {
+            self.present_keys()
+        } else {
+            self.render_level()
+        }
     }
 
     fn is_esc(&self, index: usize) -> bool {
@@ -820,6 +852,8 @@ fn main() -> Result<()> {
         .map_err(|()| anyhow::anyhow!("assign main seat"))?;
     let (touch_id_rx, mut touch_id_wake) = touchid::watch()?;
     touch_id_wake.set_nonblocking(true)?;
+    let mut kbd_wake = kbdlight::watch()?;
+    kbd_wake.set_nonblocking(true)?;
     let mut touch_device: Option<InputDevice> = None;
 
     while !STOP.load(Ordering::Relaxed) {
@@ -836,6 +870,11 @@ fn main() -> Result<()> {
             },
             pollfd {
                 fd: touch_id_wake.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            pollfd {
+                fd: kbd_wake.as_raw_fd(),
                 events: libc::POLLIN,
                 revents: 0,
             },
@@ -857,6 +896,12 @@ fn main() -> Result<()> {
             while let Ok(state) = touch_id_rx.try_recv() {
                 runtime.touch_id_changed(state)?;
             }
+        }
+
+        if poll_fds[3].revents & libc::POLLIN != 0 {
+            let mut discard = [0u8; 64];
+            while kbd_wake.read(&mut discard).is_ok() {}
+            runtime.keyboard_backlight_changed()?;
         }
 
         if poll_fds[0].revents & libc::POLLIN != 0 {
