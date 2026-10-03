@@ -132,11 +132,12 @@ static int appletb_bl_probe(struct hid_device *hdev, const struct hid_device_id 
 	if (ret)
 		return dev_err_probe(dev, ret, "HID hardware start failed\n");
 
-	ret = hid_hw_open(hdev);
-	if (ret) {
-		dev_err_probe(dev, ret, "HID hardware open failed\n");
-		goto stop_hw;
-	}
+	/*
+	 * No hid_hw_open(): the controller only takes feature reports. Opening
+	 * it would keep an input URB queued and mark the interface as needing
+	 * remote wakeup, which this device lacks, so it could never autosuspend
+	 * while the Touch Bar is dark. PM_HINT_FULLON keeps it awake while lit.
+	 */
 
 	bl->aux1_field = aux1_field;
 	bl->brightness_field = brightness_field;
@@ -147,7 +148,7 @@ static int appletb_bl_probe(struct hid_device *hdev, const struct hid_device_id 
 	if (ret) {
 		dev_err_probe(dev, ret, "Failed to set default touch bar brightness to %d\n",
 			      appletb_bl_def_brightness);
-		goto close_hw;
+		goto stop_hw;
 	}
 
 	bl_props.type = BACKLIGHT_RAW;
@@ -158,15 +159,13 @@ static int appletb_bl_probe(struct hid_device *hdev, const struct hid_device_id 
 	if (IS_ERR(bl->bdev)) {
 		ret = PTR_ERR(bl->bdev);
 		dev_err_probe(dev, ret, "Failed to register backlight device\n");
-		goto close_hw;
+		goto stop_hw;
 	}
 
 	hid_set_drvdata(hdev, bl);
 
 	return 0;
 
-close_hw:
-	hid_hw_close(hdev);
 stop_hw:
 	hid_hw_stop(hdev);
 
@@ -179,7 +178,6 @@ static void appletb_bl_remove(struct hid_device *hdev)
 
 	appletb_bl_set_brightness(bl, APPLETB_BL_OFF);
 
-	hid_hw_close(hdev);
 	hid_hw_stop(hdev);
 }
 
