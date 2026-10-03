@@ -290,10 +290,41 @@ class Lifecycle:
             parent, filename = pattern.rsplit("/", 1)
             for path in self.path(parent).glob(filename):
                 self.error(f"unrecognized legacy configuration preserved: {parent}/{path.name}")
+        self.attempt(self.configure_dsp_pipewire)
         self.empty_directories(base)
         self.empty_directories("/var/lib/t2-dsp/migration")
         self.save()
         print("[t2-dsp] Reboot to activate. No audio services were restarted")
+
+    def configure_dsp_pipewire(self):
+        models_path = self.path("/usr/share/t2-dsp/models.json")
+        # The live sysfs DMI directory is itself a kernel-provided symlink.
+        # It is a fixed read-only input, not a managed installation path.
+        # Offline roots use an ordinary fixture below that root instead.
+        dmi_path = (self.path("/sys/class/dmi/id/product_name") if self.root
+                    else Path("/sys/class/dmi/id/product_name"))
+        if not models_path.is_file() or not dmi_path.is_file():
+            raise ValueError("cannot select PipeWire DSP graph: model data or DMI product name missing")
+        model = dmi_path.read_text().strip()
+        profile = json.loads(models_path.read_text()).get(model)
+        if not profile:
+            raise ValueError(f"unsupported DMI product for PipeWire DSP graph: {model or '<empty>'}")
+        source = self.path(f"/usr/share/t2-dsp/pipewire/{profile}.conf")
+        if not source.is_file():
+            raise ValueError(f"PipeWire DSP graph configuration missing for {model}: {source}")
+
+        name = "/etc/pipewire/pipewire.conf.d/51-t2-dsp.conf"
+        target = self.path(name)
+        data = source.read_bytes()
+        if target.exists():
+            current = target.read_bytes()
+            previous = self.state["created"].get(name)
+            if digest(current) != previous and current != data:
+                raise ValueError(f"modified local PipeWire DSP configuration preserved: {name}")
+        self.atomic(target, data)
+        self.state["created"][name] = digest(data)
+        self.save()
+        print(f"[t2-dsp] selected PipeWire DSP graph {profile} for {model}")
 
     def empty_directories(self, name):
         base = self.path(name)

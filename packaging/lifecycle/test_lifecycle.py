@@ -35,6 +35,12 @@ class Tests(unittest.TestCase):
         self.put("/usr/lib/systemd/system/fprintd.service.d/kait2en-t2-touchid.conf", "[Unit]\nRequires=kait2en-t2-touchid.service\n")
         self.put("/etc/systemd/system/fprintd.service.d/kait2en-t2-touchid.conf", "[Unit]\nRequires=kait2en-t2-touchid.service\n")
 
+    def dsp_pipewire(self, model="MacBookPro15,1", profile="15_1"):
+        self.put("/usr/share/t2-dsp/models.json", json.dumps({model: profile}))
+        self.put(f"/usr/share/t2-dsp/pipewire/{profile}.conf",
+                 '{"context.modules":[]}\n')
+        self.put("/sys/class/dmi/id/product_name", model + "\n")
+
     def test_source_migrate_repeat_remove(self):
         self.touchid()
         engine = self.engine()
@@ -176,6 +182,7 @@ class Tests(unittest.TestCase):
         self.assertTrue(other.exists())
 
     def test_dsp_old_data_and_backups_cleaned_on_remove(self):
+        self.dsp_pipewire()
         self.put("/usr/share/t2-dsp/profiles/15_1/graph.json", '{"target.object":"new","filter.graph":{}}')
         old = self.put("/usr/share/kait2en/audio-dsp/15_1/graph.json", '{"target.object":"old-pci","filter.graph":{}}')
         custom = self.put("/usr/share/kait2en/audio-dsp/15_1/custom.txt", "user notes")
@@ -191,6 +198,7 @@ class Tests(unittest.TestCase):
         self.assertFalse((self.root / "var/lib/kait2en/migration/t2-dsp").exists())
 
     def test_dsp_unowned_asset_change_archives_instead_of_repeating_forever(self):
+        self.dsp_pipewire(model="MacBookPro15,4", profile="15_4")
         self.put("/usr/share/t2-dsp/profiles/15_4/graph.json", '{"target.object":"new","filter.graph":{"gain": 2}}')
         old = self.put("/usr/share/kait2en/audio-dsp/15_4/graph.json", '{"target.object":"old-pci","filter.graph":{"gain": 1}}')
         engine = self.engine("t2-dsp")

@@ -3,6 +3,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -21,6 +22,13 @@ class PackagingTests(unittest.TestCase):
         self.output = self.root / "build"
         builder.build(self.output, "/usr/share")
         self.conf = json.loads((self.output / "51-t2-dsp.conf").read_text())
+        installed = self.root / "usr/share/t2-dsp"
+        installed.mkdir(parents=True)
+        shutil.copy2(self.output / "models.json", installed / "models.json")
+        shutil.copytree(self.output / "pipewire", installed / "pipewire")
+        dmi = self.root / "sys/class/dmi/id/product_name"
+        dmi.parent.mkdir(parents=True)
+        dmi.write_text("MacBookPro15,1\n")
 
     def test_all_profiles_and_short_unique_ids(self):
         profiles = list(builder.models().values())
@@ -68,23 +76,20 @@ class PackagingTests(unittest.TestCase):
                 if value.startswith("/usr/share/t2-dsp/"):
                     self.assertTrue((self.output / value.removeprefix("/usr/share/t2-dsp/")).is_file(), value)
 
-    def test_rules_exclude_headphones_headsets_and_split_parent(self):
-        rules = self.conf["node.software-dsp.rules"]
-        def matching(props):
-            return [r for r in rules if any(all(props.get(k) == v for k, v in m.items()) for m in r["matches"])]
+    def test_pipewire_owns_filter_modules(self):
+        self.assertNotIn("node.software-dsp.rules", self.conf)
+        self.assertNotIn("node.software-dsp", self.conf["wireplumber.profiles"]["main"])
         for profile in builder.models().values():
-            for stream, name in (("playback", "HiFi: Headphones: sink"),
-                                 ("capture", "HiFi: Headset: source"),
-                                 ("playback", None)):
-                self.assertEqual([], matching({"alsa.id": f"t2-{profile}",
-                    "api.alsa.pcm.stream": stream, "device.profile.name": name}))
-            speakers = matching(builder.match(profile, "playback"))
-            self.assertEqual(len(speakers), 1)
-            self.assertFalse(speakers[0]["actions"]["create-filter"]["hide-parent"])
-            mic = SOURCE / "profiles" / profile / "mic.json"
-            self.assertEqual(len(matching(builder.match(profile, "capture"))), int(mic.exists()))
-        self.assertEqual([], matching(builder.match("unknown", "playback")))
-        self.assertEqual([], matching({"media.class": "Audio/Sink", "device.api": "dsp"}))
+            config = json.loads((self.output / "pipewire" / f"{profile}.conf").read_text())
+            modules = config["context.modules"]
+            names = ["graph.json"]
+            if (SOURCE / "profiles" / profile / "mic.json").exists():
+                names.append("mic.json")
+            self.assertEqual(len(modules), len(names))
+            for module, name in zip(modules, names):
+                self.assertEqual(module["name"], "libpipewire-module-filter-chain")
+                self.assertEqual(module["args"], json.loads(
+                    (self.output / "profiles" / profile / name).read_text()))
 
     def test_headphones_outrank_speaker_dsp_for_automatic_selection(self):
         for profile in builder.models().values():
@@ -122,7 +127,18 @@ class PackagingTests(unittest.TestCase):
             if path.is_file():
                 self.assertEqual(path.read_bytes(), (other / path.relative_to(self.output)).read_bytes())
         builder.build(other, "/opt/t2/share")
-        self.assertIn("/opt/t2/share/t2-dsp/", (other / "51-t2-dsp.conf").read_text())
+        self.assertIn("/opt/t2/share/t2-dsp/",
+                      (other / "pipewire/15_1.conf").read_text())
+
+    def test_lifecycle_selects_model_config_and_preserves_local_edits(self):
+        self.migrate()
+        target = self.root / "etc/pipewire/pipewire.conf.d/51-t2-dsp.conf"
+        source = self.root / "usr/share/t2-dsp/pipewire/15_1.conf"
+        self.assertEqual(target.read_bytes(), source.read_bytes())
+        target.write_text("administrator override\n")
+        result = self.migrate()
+        self.assertEqual(target.read_text(), "administrator override\n")
+        self.assertIn("modified local PipeWire DSP configuration preserved", result.stdout)
 
     def write_legacy(self, relative, content):
         path = self.root / relative
@@ -177,6 +193,8 @@ class PackagingTests(unittest.TestCase):
         subprocess.run(["make", "-C", str(SOURCE), "install", "PREFIX=/usr", f"DESTDIR={stage}"],
                        check=True, stdout=subprocess.DEVNULL)
         self.assertTrue((stage / "usr/lib/udev/rules.d/89-t2-dsp.rules").is_file())
+        self.assertTrue((stage / "usr/share/t2-dsp/pipewire/15_1.conf").is_file())
+        self.assertTrue((stage / "usr/share/t2-dsp/models.json").is_file())
         self.assertTrue((stage / "usr/share/wireplumber/scripts/t2-default-output.lua").is_file())
         self.assertTrue((stage / "usr/share/licenses/t2-dsp/GPL-3.0-or-later.txt").is_file())
         self.assertFalse((stage / "etc").exists())

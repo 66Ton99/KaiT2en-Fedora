@@ -42,7 +42,7 @@ def write_json(path, value):
 
 
 def build(output, datadir):
-    monitor, filters = [], []
+    monitor = []
     # Match the driver ancestry, not a PCI address or bus topology. Use short
     # IDs because struct snd_card.id is only 16 bytes including the terminator.
     udev = [
@@ -80,14 +80,23 @@ def build(output, datadir):
                 # this stream away from its raw speaker backend.
                 graph[props]["node.dont-move"] = True
             write_json(dest / filename, graph)
-            filters.append({"matches": [match(profile, stream)], "actions": {
-                "create-filter": {"filter-path": f"{datadir}/t2-dsp/profiles/{profile}/{filename}",
-                                  "hide-parent": False}}})
             if stream == "capture":
                 monitor.append({"matches": [match(profile, stream)], "actions": {
                     "update-props": {"node.name": target}}})
+        modules = []
+        for filename in ("graph.json", "mic.json"):
+            path = dest / filename
+            if path.exists():
+                modules.append({
+                    "name": "libpipewire-module-filter-chain",
+                    "args": json.loads(path.read_text()),
+                })
+        write_json(output / "pipewire" / f"{profile}.conf", {
+            "context.modules": modules,
+        })
     udev.append('LABEL="t2_dsp_end"')
     (output / "89-t2-dsp.rules").write_text("\n".join(udev) + "\n")
+    write_json(output / "models.json", models())
     # Constrain the raw T2 speakers to the rates the hardware DSP path expects.
     # Losing this in the packaging refactor caused startup distortion. No rename
     # here, so the WirePlumber-generated names stay intact for UCM loopbacks.
@@ -111,9 +120,7 @@ def build(output, datadir):
     # their WirePlumber-generated names so UCM loopbacks keep linking correctly.
     write_json(output / "51-t2-dsp.conf", {
         "monitor.alsa.rules": monitor,
-        "node.software-dsp.rules": filters,
         "wireplumber.profiles": {"main": {
-            "node.software-dsp": "required",
             "hooks.t2-default-output": "required",
         }},
         "wireplumber.components": [{

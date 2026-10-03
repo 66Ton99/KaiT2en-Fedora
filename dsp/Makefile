@@ -14,8 +14,12 @@ test:
 install: build
 	install -d '$(DESTDIR)$(DATADIR)/t2-dsp/profiles'
 	cp -r build/profiles/. '$(DESTDIR)$(DATADIR)/t2-dsp/profiles/'
+	install -d '$(DESTDIR)$(DATADIR)/t2-dsp/pipewire'
+	cp -r build/pipewire/. '$(DESTDIR)$(DATADIR)/t2-dsp/pipewire/'
+	install -m 0644 build/models.json '$(DESTDIR)$(DATADIR)/t2-dsp/models.json'
 	find '$(DESTDIR)$(DATADIR)/t2-dsp/profiles' -type d -exec chmod 0755 {} +
 	find '$(DESTDIR)$(DATADIR)/t2-dsp/profiles' -type f -exec chmod 0644 {} +
+	find '$(DESTDIR)$(DATADIR)/t2-dsp/pipewire' -type f -exec chmod 0644 {} +
 	install -D -m 0644 build/51-t2-dsp.conf '$(DESTDIR)$(DATADIR)/wireplumber/wireplumber.conf.d/51-t2-dsp.conf'
 	install -D -m 0644 integration/wireplumber/t2-default-output.lua '$(DESTDIR)$(DATADIR)/wireplumber/scripts/t2-default-output.lua'
 	install -D -m 0644 build/89-t2-dsp.rules '$(DESTDIR)$(UDEVDIR)/89-t2-dsp.rules'
