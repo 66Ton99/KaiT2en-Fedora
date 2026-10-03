@@ -26,7 +26,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use input::{
-    Device as InputDevice, Libinput, LibinputInterface,
+    Device as InputDevice, DeviceCapability, Libinput, LibinputInterface, SendEventsMode,
     event::{
         DeviceEvent, Event, EventTrait,
         keyboard::{KeyState, KeyboardEvent, KeyboardEventTrait},
@@ -703,10 +703,20 @@ fn main() -> Result<()> {
         if poll_fds[1].revents & libc::POLLIN != 0 {
             main_input.dispatch()?;
             for event in &mut main_input {
-                if let Event::Keyboard(KeyboardEvent::Key(key)) = event
-                    && key.key() == Key::Fn as u32
-                {
-                    runtime.fn_event(key.key_state() == KeyState::Pressed)?;
+                match event {
+                    // seat0 hands over every readable device, including the
+                    // virtual keyboard this daemon writes to. Only Fn is
+                    // needed; closing the rest avoids wakeups from every
+                    // pointer motion and our own key events looping back.
+                    Event::Device(DeviceEvent::Added(added)) if !provides_fn(&added.device()) => {
+                        let _ = added
+                            .device()
+                            .config_send_events_set_mode(SendEventsMode::DISABLED);
+                    }
+                    Event::Keyboard(KeyboardEvent::Key(key)) if key.key() == Key::Fn as u32 => {
+                        runtime.fn_event(key.key_state() == KeyState::Pressed)?;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -714,6 +724,11 @@ fn main() -> Result<()> {
     }
     runtime.go_dark(false)?;
     Ok(())
+}
+
+fn provides_fn(device: &InputDevice) -> bool {
+    device.has_capability(DeviceCapability::Keyboard)
+        && device.keyboard_has_key(Key::Fn as u32) == Ok(true)
 }
 
 fn is_touch_bar(name: &str) -> bool {
