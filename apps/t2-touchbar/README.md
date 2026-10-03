@@ -25,6 +25,9 @@ While `t2-touchid` reports an authentication, all keys disappear and the bar
 shows the fingerprint animation next to the sensor. This works for sudo and
 the GNOME lock screen in the running user session.
 
+Holding previous or next seeks in the active media player (MPRIS) instead of
+skipping the track; a tap still skips.
+
 Accepted key presses use `t2_trackpad_actuator` to give a bit of haptic feedback.
 
 The panel itself only has two brightness steps. The key glyphs are therefore

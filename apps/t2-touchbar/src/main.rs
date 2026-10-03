@@ -8,6 +8,7 @@ mod haptic;
 mod kbdlight;
 mod keyboard;
 mod levels;
+mod mpris;
 mod policy;
 mod renderer;
 mod touchid;
@@ -23,7 +24,7 @@ use std::{
     },
     path::Path,
     sync::atomic::{AtomicBool, Ordering},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::{Context, Result};
@@ -45,6 +46,7 @@ use gesture::{Swipe, SwipeKind};
 use haptic::Haptic;
 use keyboard::VirtualKeyboard;
 use levels::Level;
+use mpris::Mpris;
 use policy::{PersistentState, TimeoutLearner};
 use renderer::{Action, Canvas, Layout, LevelKind};
 use touchid::TouchIdState;
@@ -58,6 +60,13 @@ const LEVEL_LINGER_MS: u64 = 700;
 /// value is read back repeatedly for a short while after each step.
 const LEVEL_POLL_MS: u64 = 80;
 const LEVEL_POLL_WINDOW_MS: u64 = 600;
+/// Holding previous/next this long from touch-down starts seeking.
+const MEDIA_HOLD_MS: u64 = 450;
+const SEEK_INTERVAL_MS: u64 = 250;
+/// Seek steps grow after this long, so long distances stay quick.
+const SEEK_FAST_AFTER_MS: u64 = 1_500;
+const SEEK_STEP: Duration = Duration::from_secs(5);
+const SEEK_FAST_STEP: Duration = Duration::from_secs(15);
 
 static STOP: AtomicBool = AtomicBool::new(false);
 
@@ -94,6 +103,17 @@ enum Contact {
     Swipe,
     /// Esc held on the dark bar; the bar stays dark.
     DarkEsc,
+    /// Previous/next held: a tap on release, seeking once held long enough.
+    MediaHold(usize),
+}
+
+/// Previous/next under a finger. Released early it skips the track, held
+/// past `MEDIA_HOLD_MS` it seeks in steps until released.
+struct MediaHold {
+    forward: bool,
+    next_ms: u64,
+    seeking_since: Option<u64>,
+    player: Option<String>,
 }
 
 /// A first touch held back for `two_finger_window_ms`. On the dark bar it
@@ -132,6 +152,8 @@ struct Runtime {
     level_poll_ms: Option<u64>,
     level_poll_until_ms: u64,
     key_level: u32,
+    media_hold: Option<MediaHold>,
+    mpris: Mpris,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -180,6 +202,8 @@ impl Runtime {
             level_poll_ms: None,
             level_poll_until_ms: 0,
             key_level: 100,
+            media_hold: None,
+            mpris: Mpris::default(),
             touches_armed: true,
             active_button: None,
             layout,
@@ -262,6 +286,7 @@ impl Runtime {
         self.positions.clear();
         self.pending = None;
         self.swipe = None;
+        self.media_hold = None;
     }
 
     fn touch_down(&mut self, slot: u32, x: f64, y: f64) -> Result<()> {
@@ -384,6 +409,20 @@ impl Runtime {
             return self.wake(true);
         }
         match pending.button {
+            Some(index) if self.media_direction(index).is_some() => {
+                // Stays highlighted; the action is decided on release or hold.
+                let touched = pending.deadline_ms - self.config.two_finger_window_ms;
+                self.contacts
+                    .insert(pending.slot, Contact::MediaHold(index));
+                self.media_hold = Some(MediaHold {
+                    forward: self.media_direction(index) == Some(true),
+                    next_ms: touched + MEDIA_HOLD_MS,
+                    seeking_since: None,
+                    player: None,
+                });
+                self.deadline_ms = Some(now + self.state.learned(self.state.mode).timeout_ms);
+                Ok(())
+            }
             Some(index) => {
                 self.contacts.insert(pending.slot, Contact::Button(index));
                 self.press_button(index, now)
@@ -492,6 +531,59 @@ impl Runtime {
         }
     }
 
+    /// `Some(true)` for next, `Some(false)` for previous.
+    fn media_direction(&self, index: usize) -> Option<bool> {
+        match self.layout.buttons[index].action {
+            Action::Key(Key::NextSong) => Some(true),
+            Action::Key(Key::PreviousSong) => Some(false),
+            _ => None,
+        }
+    }
+
+    fn seek_step(&mut self, now: u64) -> Result<()> {
+        let Some(mut hold) = self.media_hold.take() else {
+            return Ok(());
+        };
+        let since = match hold.seeking_since {
+            Some(since) => since,
+            None => {
+                // The hold turned into seeking: no track skip on release.
+                hold.player = self.mpris.active_player();
+                self.haptic.click();
+                if self
+                    .learner
+                    .action(now, self.state.mode, &mut self.state, &self.config)
+                {
+                    self.save();
+                }
+                *hold.seeking_since.insert(now)
+            }
+        };
+        let step = if now - since >= SEEK_FAST_AFTER_MS {
+            SEEK_FAST_STEP
+        } else {
+            SEEK_STEP
+        };
+        let seeked = hold
+            .player
+            .as_deref()
+            .is_some_and(|player| self.mpris.seek(player, step, hold.forward).is_ok());
+        if !seeked {
+            // No MPRIS player: leave it to whoever handles the seek keys.
+            let key = if hold.forward {
+                Key::FastForward
+            } else {
+                Key::Rewind
+            };
+            self.keyboard.press(key)?;
+            self.keyboard.release()?;
+        }
+        hold.next_ms = now + SEEK_INTERVAL_MS;
+        self.deadline_ms = Some(now + self.state.learned(self.state.mode).timeout_ms);
+        self.media_hold = Some(hold);
+        Ok(())
+    }
+
     fn is_esc(&self, index: usize) -> bool {
         self.layout.buttons[index].action == Action::Key(Key::Esc)
     }
@@ -542,6 +634,15 @@ impl Runtime {
             Some(Contact::Button(index)) => {
                 if self.layout.hit(x, y, self.canvas.height) != Some(index) {
                     self.keyboard.release()?;
+                    self.active_button = None;
+                    self.contacts.insert(slot, Contact::Cancelled);
+                    self.present_keys()?;
+                }
+                Ok(())
+            }
+            Some(Contact::MediaHold(index)) => {
+                if self.layout.hit(x, y, self.canvas.height) != Some(index) {
+                    self.media_hold = None;
                     self.active_button = None;
                     self.contacts.insert(slot, Contact::Cancelled);
                     self.present_keys()?;
@@ -632,6 +733,18 @@ impl Runtime {
             }
             Some(Contact::Button(_)) => {
                 self.keyboard.release()?;
+                self.active_button = None;
+                self.present_keys()?;
+            }
+            Some(Contact::MediaHold(index)) => {
+                let seeking = self
+                    .media_hold
+                    .take()
+                    .is_some_and(|hold| hold.seeking_since.is_some());
+                if !seeking {
+                    self.press_button(index, now)?;
+                    self.keyboard.release()?;
+                }
                 self.active_button = None;
                 self.present_keys()?;
             }
@@ -736,6 +849,13 @@ impl Runtime {
         if self.overlay_hide_ms.is_some_and(|deadline| now >= deadline) {
             self.hide_overlay()?;
         }
+        if self
+            .media_hold
+            .as_ref()
+            .is_some_and(|hold| now >= hold.next_ms)
+        {
+            self.seek_step(now)?;
+        }
         self.toggle_mode_if_due(now)?;
         if self.touch_id == TouchIdState::Idle
             && self.visible
@@ -770,6 +890,9 @@ impl Runtime {
     fn next_timeout(&self) -> i32 {
         let now = self.now_ms();
         let mut deadlines = Vec::new();
+        if let Some(hold) = &self.media_hold {
+            deadlines.push(hold.next_ms);
+        }
         if let Some(deadline) = self.deadline_ms {
             deadlines.push(deadline);
         }
