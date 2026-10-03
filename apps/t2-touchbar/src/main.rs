@@ -46,9 +46,9 @@ use gesture::{Swipe, SwipeKind};
 use haptic::Haptic;
 use keyboard::VirtualKeyboard;
 use levels::{Level, Reader as LevelReader};
-use mpris::Mpris;
+use mpris::{Mpris, Track};
 use policy::{PersistentState, TimeoutLearner};
-use renderer::{Action, Canvas, Layout, LevelKind};
+use renderer::{Action, Canvas, Layout, LevelKind, TrackLayout};
 use touchid::TouchIdState;
 
 /// How long the esc key stays lit after it was used on the dark bar, so even
@@ -60,6 +60,11 @@ const LEVEL_LINGER_MS: u64 = 700;
 /// value is read back repeatedly for a short while after each step.
 const LEVEL_POLL_MS: u64 = 80;
 const LEVEL_POLL_WINDOW_MS: u64 = 600;
+/// Track overlay timeline: fade in, hold, fade out.
+const TRACK_FADE_MS: u64 = 700;
+const TRACK_HOLD_MS: u64 = 5_000;
+/// About 30 fps while the overlay fades.
+const TRACK_FRAME_MS: u64 = 33;
 /// Holding previous/next this long from touch-down starts seeking.
 /// The Touch ID arrow swings towards the sensor once per period, at about
 /// 30 fps.
@@ -109,6 +114,18 @@ enum Contact {
     DarkEsc,
     /// Previous/next held: a tap on release, seeking once held long enough.
     MediaHold(usize),
+    /// A key of the track overlay on the dark bar; `true` is next.
+    TrackKey(bool),
+}
+
+/// "Artist – Title" shown on the dark bar when a new track starts.
+struct TrackToast {
+    track: Track,
+    /// Origin of the fade in / hold / fade out timeline.
+    start_ms: u64,
+    next_ms: Option<u64>,
+    layout: TrackLayout,
+    pressed: Option<bool>,
 }
 
 /// Previous/next under a finger. Released early it skips the track, held
@@ -165,6 +182,7 @@ struct Runtime {
     key_level: u32,
     media_hold: Option<MediaHold>,
     mpris: Mpris,
+    toast: Option<TrackToast>,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -220,6 +238,7 @@ impl Runtime {
             key_level: 100,
             media_hold: None,
             mpris: Mpris::default(),
+            toast: None,
             touches_armed: true,
             active_button: None,
             layout,
@@ -265,6 +284,7 @@ impl Runtime {
         self.overlay_hide_ms = None;
         self.level_kind = None;
         self.level_poll_ms = None;
+        self.toast = None;
         if quarantine_touch {
             self.touches_armed = false;
         }
@@ -289,6 +309,7 @@ impl Runtime {
         self.overlay_hide_ms = None;
         self.level_kind = None;
         self.level_poll_ms = None;
+        self.toast = None;
         self.canvas.clear();
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
@@ -327,6 +348,25 @@ impl Runtime {
         {
             self.contacts.insert(slot, Contact::Cancelled);
             return Ok(());
+        }
+        if !self.visible
+            && let Some(toast) = self.toast.as_mut()
+        {
+            let inside = |(left, right): (u16, u16)| x >= f64::from(left) && x < f64::from(right);
+            let forward = if inside(toast.layout.next) {
+                Some(true)
+            } else if inside(toast.layout.prev) {
+                Some(false)
+            } else {
+                None
+            };
+            if let Some(forward) = forward {
+                toast.pressed = Some(forward);
+                self.contacts.insert(slot, Contact::TrackKey(forward));
+                return self.track_frame(now);
+            }
+            // Anything else on the bar takes over from the overlay.
+            self.toast = None;
         }
         let button = self.layout.hit(x, y, self.canvas.height);
         // The esc slot never moves, so it stays usable while the bar is dark.
@@ -449,9 +489,88 @@ impl Runtime {
         }
     }
 
+    fn track_changed(&mut self, track: Track) -> Result<()> {
+        let now = self.now_ms();
+        if let Some(toast) = self.toast.as_mut() {
+            toast.track = track;
+            toast.start_ms = now.saturating_sub(TRACK_FADE_MS);
+            return self.track_frame(now);
+        }
+        // Only on a quiet dark bar: never over keys, gestures or Touch ID.
+        if self.visible
+            || self.overlay_shown
+            || self.touch_id != TouchIdState::Idle
+            || !self.contacts.is_empty()
+        {
+            return Ok(());
+        }
+        self.refresh_key_level();
+        self.toast = Some(TrackToast {
+            track,
+            start_ms: now,
+            next_ms: None,
+            layout: self.track_keys(),
+            pressed: None,
+        });
+        self.track_frame(now)
+    }
+
+    /// Draws the track overlay for `now` and schedules the next frame: about
+    /// 30 fps while fading, nothing while it holds or a key is pressed.
+    fn track_frame(&mut self, now: u64) -> Result<()> {
+        let Some(toast) = self.toast.as_mut() else {
+            return Ok(());
+        };
+        let elapsed = now.saturating_sub(toast.start_ms);
+        let fade_out = TRACK_FADE_MS + TRACK_HOLD_MS;
+        let (opacity, next) = if toast.pressed.is_some() {
+            (1.0, None)
+        } else if elapsed < TRACK_FADE_MS {
+            (
+                elapsed as f32 / TRACK_FADE_MS as f32,
+                Some(now + TRACK_FRAME_MS),
+            )
+        } else if elapsed < fade_out {
+            (1.0, Some(toast.start_ms + fade_out))
+        } else if elapsed < fade_out + TRACK_FADE_MS {
+            (
+                1.0 - (elapsed - fade_out) as f32 / TRACK_FADE_MS as f32,
+                Some(now + TRACK_FRAME_MS),
+            )
+        } else {
+            return self.hide_overlay();
+        };
+        // Smoothstep, so the fades start and end softly.
+        let eased = opacity * opacity * (3.0 - 2.0 * opacity);
+        toast.next_ms = next;
+        let (track, pressed, keys) = (toast.track.clone(), toast.pressed, toast.layout);
+        self.canvas.track(
+            &track.artist,
+            &track.title,
+            (eased * 100.0).round() as u32,
+            pressed,
+            keys,
+        );
+        self.present_overlay()
+    }
+
+    /// The overlay's previous key takes the first key slot after esc; next
+    /// mirrors it on the right, as if an invisible esc sat there too. The
+    /// keys stay in fixed places, esc keeps working and the text centers on
+    /// the bar.
+    fn track_keys(&self) -> TrackLayout {
+        let first = &self.layout.buttons[usize::from(self.is_esc(0))];
+        let width = self.canvas.width;
+        TrackLayout {
+            prev: (first.left, first.right),
+            next: (width - first.right, width - first.left),
+        }
+    }
+
     fn show_dark_esc(&mut self, index: usize) -> Result<()> {
         self.refresh_key_level();
         self.level_kind = None;
+        self.toast = None;
         self.overlay_hide_ms = None;
         self.canvas.single_key(&self.layout, index);
         self.present_overlay()
@@ -459,6 +578,7 @@ impl Runtime {
 
     fn begin_level(&mut self, kind: LevelKind) -> Result<()> {
         self.refresh_key_level();
+        self.toast = None;
         self.level_kind = Some(kind);
         self.level = self.level_cache[cache_slot(kind)];
         self.level_reader.request(kind);
@@ -499,6 +619,7 @@ impl Runtime {
     fn hide_overlay(&mut self) -> Result<()> {
         self.overlay_hide_ms = None;
         self.level_kind = None;
+        self.toast = None;
         self.level_poll_ms = None;
         if !self.overlay_shown || self.visible {
             return Ok(());
@@ -678,6 +799,23 @@ impl Runtime {
                 }
                 Ok(())
             }
+            Some(Contact::TrackKey(forward)) => {
+                let Some(toast) = self.toast.as_mut() else {
+                    return Ok(());
+                };
+                let (left, right) = if forward {
+                    toast.layout.next
+                } else {
+                    toast.layout.prev
+                };
+                if x < f64::from(left) || x >= f64::from(right) {
+                    toast.pressed = None;
+                    toast.start_ms = now.saturating_sub(TRACK_FADE_MS);
+                    self.contacts.insert(slot, Contact::Cancelled);
+                    return self.track_frame(now);
+                }
+                Ok(())
+            }
             Some(Contact::DarkEsc) => {
                 if !self
                     .layout
@@ -780,6 +918,22 @@ impl Runtime {
             Some(Contact::DarkEsc) => {
                 self.keyboard.release()?;
                 self.overlay_hide_ms = Some(now + ESC_LINGER_MS);
+            }
+            Some(Contact::TrackKey(forward)) => {
+                let key = if forward {
+                    Key::NextSong
+                } else {
+                    Key::PreviousSong
+                };
+                self.keyboard.press(key)?;
+                self.keyboard.release()?;
+                self.haptic.click();
+                if let Some(toast) = self.toast.as_mut() {
+                    // Stay fully visible; the next track replaces the text.
+                    toast.pressed = None;
+                    toast.start_ms = now.saturating_sub(TRACK_FADE_MS);
+                }
+                self.track_frame(now)?;
             }
             Some(Contact::Swipe) => {
                 // The centroid would jump to the remaining finger, so the
@@ -887,6 +1041,14 @@ impl Runtime {
     fn tick(&mut self) -> Result<()> {
         let now = self.now_ms();
         self.resolve_pending(now)?;
+        if self
+            .toast
+            .as_ref()
+            .and_then(|toast| toast.next_ms)
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.track_frame(now)?;
+        }
         if self.level_poll_ms.is_some_and(|deadline| now >= deadline) {
             self.poll_level(now);
         }
@@ -922,6 +1084,9 @@ impl Runtime {
     fn next_timeout(&self) -> i32 {
         let now = self.now_ms();
         let mut deadlines = Vec::new();
+        if let Some(deadline) = self.toast.as_ref().and_then(|toast| toast.next_ms) {
+            deadlines.push(deadline);
+        }
         if let Some(hold) = &self.media_hold {
             deadlines.push(hold.next_ms);
         }
@@ -1006,6 +1171,13 @@ fn main() -> Result<()> {
     touch_id_wake.set_nonblocking(true)?;
     let mut kbd_wake = kbdlight::watch()?;
     kbd_wake.set_nonblocking(true)?;
+    let tracks = if runtime.config.show_track_changes {
+        let (receiver, wake) = mpris::watch_tracks()?;
+        wake.set_nonblocking(true)?;
+        Some((receiver, wake))
+    } else {
+        None
+    };
     let mut touch_device: Option<InputDevice> = None;
 
     while !STOP.load(Ordering::Relaxed) {
@@ -1035,6 +1207,12 @@ fn main() -> Result<()> {
                 events: libc::POLLIN,
                 revents: 0,
             },
+            pollfd {
+                // poll ignores negative descriptors.
+                fd: tracks.as_ref().map_or(-1, |(_, wake)| wake.as_raw_fd()),
+                events: libc::POLLIN,
+                revents: 0,
+            },
         ];
         let result = unsafe {
             libc::poll(
@@ -1059,6 +1237,16 @@ fn main() -> Result<()> {
             let mut discard = [0u8; 64];
             while kbd_wake.read(&mut discard).is_ok() {}
             runtime.keyboard_backlight_changed()?;
+        }
+
+        if poll_fds[5].revents & libc::POLLIN != 0
+            && let Some((receiver, wake)) = &tracks
+        {
+            let mut discard = [0u8; 64];
+            while (&*wake).read(&mut discard).is_ok() {}
+            while let Ok(track) = receiver.try_recv() {
+                runtime.track_changed(track)?;
+            }
         }
 
         if poll_fds[4].revents & libc::POLLIN != 0 {

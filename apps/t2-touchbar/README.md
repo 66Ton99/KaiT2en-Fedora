@@ -30,6 +30,11 @@ running user session.
 Holding previous or next seeks in the active media player (MPRIS) instead of
 skipping the track; a tap still skips.
 
+When a media player starts a new track while the bar is dark, "Artist – Title"
+fades in for five seconds with previous/next keys at both ends, so an unwanted
+track can be skipped without waking the bar. `show_track_changes = false`
+turns this off.
+
 Accepted key presses use `t2_trackpad_actuator` to give a bit of haptic feedback.
 
 The panel itself only has two brightness steps. The key glyphs are therefore

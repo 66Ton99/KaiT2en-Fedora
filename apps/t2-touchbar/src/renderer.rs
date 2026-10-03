@@ -44,6 +44,13 @@ const KEY_GAP: u16 = 10;
 const KEY_GAP_F: f32 = KEY_GAP as f32;
 const GROUP_GAP: u16 = 56;
 
+/// Previous and next key spans (left, right) of the track overlay.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TrackLayout {
+    pub prev: (u16, u16),
+    pub next: (u16, u16),
+}
+
 #[derive(Clone, Copy)]
 pub struct Button {
     pub left: u16,
@@ -176,6 +183,8 @@ const FONT_WEIGHT: f32 = 500.0;
 /// Emphasis in the Touch ID prompt ("**Unlock** with Touch ID").
 const STRONG_WEIGHT: f32 = 700.0;
 const PROMPT_MARGIN: f32 = 18.0;
+const TRACK_FONT_SIZE: f32 = 24.0;
+const TRACK_GAP: f32 = 40.0;
 const ARROW_LENGTH: f32 = 22.0;
 const ARROW_GAP: f32 = 14.0;
 const ARROW_STROKE: f32 = 3.0;
@@ -331,6 +340,101 @@ impl Canvas {
             self.color,
         );
         self.flush();
+    }
+
+    /// "**Artist** – Title" on the dark bar with borderless previous/next
+    /// keys at `keys`, the fixed slots at both ends of the bar. `fade`
+    /// scales everything (percent) for the fade in and out; `pressed`
+    /// highlights next (`true`) or previous (`false`).
+    pub fn track(
+        &mut self,
+        artist: &str,
+        title: &str,
+        fade: u32,
+        pressed: Option<bool>,
+        keys: TrackLayout,
+    ) {
+        let space_left = f32::from(keys.prev.1) + TRACK_GAP;
+        let space_right = f32::from(keys.next.0) - TRACK_GAP;
+        let (artist, title) = self.fit_track(artist, title, space_right - space_left);
+        let separator = if artist.is_empty() { "" } else { " – " };
+        let parts = [
+            (artist.as_str(), STRONG_WEIGHT),
+            (separator, FONT_WEIGHT),
+            (title.as_str(), FONT_WEIGHT),
+        ];
+        let text_width: f32 = parts
+            .iter()
+            .map(|(text, weight)| self.text_width_at(text, TRACK_FONT_SIZE, *weight))
+            .sum();
+
+        let full = self.color;
+        self.color = full.scale(fade.min(100));
+        self.pixmap.fill(Color::BLACK);
+        let top = KEY_INSET;
+        let bottom = f32::from(self.height) - KEY_INSET;
+        let cy = f32::from(self.height) / 2.0;
+        for ((left, right), icon, forward) in [
+            (keys.prev, Icon::Previous, false),
+            (keys.next, Icon::Next, true),
+        ] {
+            let (left, right) = (f32::from(left), f32::from(right));
+            let background = if pressed == Some(forward) {
+                let fill = self.color.scale(20);
+                self.fill(&rounded_rect(left, top, right, bottom, KEY_RADIUS), fill);
+                fill
+            } else {
+                BLACK
+            };
+            self.icon((left + right) / 2.0, cy, icon, background);
+        }
+        let baseline = (cy + self.cap_height(TRACK_FONT_SIZE) / 2.0).round();
+        let mut path = PathBuilder::new();
+        let mut x = ((space_left + space_right - text_width) / 2.0).round();
+        for (text, weight) in parts {
+            x = self.append_text(&mut path, x, baseline, text, TRACK_FONT_SIZE, weight);
+        }
+        if let Some(path) = path.finish() {
+            self.fill(&path, self.color);
+        }
+        self.color = full;
+        self.flush();
+    }
+
+    /// Shortens the title, then the artist, with an ellipsis until the line
+    /// fits.
+    fn fit_track(&mut self, artist: &str, title: &str, max: f32) -> (String, String) {
+        let mut artist: Vec<char> = artist.chars().collect();
+        let mut title: Vec<char> = title.chars().collect();
+        let (mut artist_cut, mut title_cut) = (false, false);
+        loop {
+            let shown = |chars: &[char], cut: bool| {
+                let mut text: String = chars.iter().collect();
+                if cut {
+                    text = format!("{}…", text.trim_end());
+                }
+                text
+            };
+            let (a, t) = (shown(&artist, artist_cut), shown(&title, title_cut));
+            let separator = if a.is_empty() {
+                0.0
+            } else {
+                self.text_width_at(" – ", TRACK_FONT_SIZE, FONT_WEIGHT)
+            };
+            let width = self.text_width_at(&a, TRACK_FONT_SIZE, STRONG_WEIGHT)
+                + separator
+                + self.text_width_at(&t, TRACK_FONT_SIZE, FONT_WEIGHT);
+            if width <= max || (artist.len() <= 1 && title.len() <= 1) {
+                return (a, t);
+            }
+            if title.len() > 12 || artist.len() <= 12 {
+                title.pop();
+                title_cut = true;
+            } else {
+                artist.pop();
+                artist_cut = true;
+            }
+        }
     }
 
     /// Only one pressed key on an otherwise black bar, e.g. esc used while
@@ -742,6 +846,9 @@ fn icon_shapes(icon: Icon) -> Vec<Shape> {
                     path.line_to(side * offset, 6.8);
                     path.close();
                 }
+                // The bar at the tips marks a track skip (|◀◀, ▶▶|).
+                let (near, far) = (side * 11.2, side * 13.8);
+                path.push_path(&rounded_rect(near.min(far), -6.8, near.max(far), 6.8, 0.6));
             }) {
                 shapes.push(Shape::Solid(path));
             }
@@ -898,7 +1005,7 @@ mod tests {
             }
             fs::write(format!("{dir}/{name}.ppm"), ppm).unwrap();
         };
-        canvas.keys(&Layout::new(Mode::Media, 2170, false), Some(8));
+        canvas.keys(&Layout::new(Mode::Media, 2170, false), None);
         save("media", &canvas);
         canvas.keys(&Layout::new(Mode::Function, 2170, false), None);
         save("function", &canvas);
@@ -906,6 +1013,21 @@ mod tests {
         save("touchid", &canvas);
         canvas.touch_id("waiting", 1.0);
         save("touchid-nudged", &canvas);
+        let media = Layout::new(Mode::Media, 2170, false);
+        let keys = TrackLayout {
+            prev: (media.buttons[1].left, media.buttons[1].right),
+            next: (2170 - media.buttons[1].right, 2170 - media.buttons[1].left),
+        };
+        canvas.track("Slipknot", "Duality", 100, None, keys);
+        save("track", &canvas);
+        canvas.track(
+            "Heino",
+            "Blau blüht der Enzian (Live aus der Festhalle mit Orchester und sehr langem Titel, der gekürzt werden muss, weil er sonst nicht passt)",
+            60,
+            Some(true),
+            keys,
+        );
+        save("track-long", &canvas);
         canvas.touch_id("retry", 0.0);
         save("touchid-retry", &canvas);
         canvas.level(LevelKind::Volume, Some(45), false, (560.0, 640.0));
