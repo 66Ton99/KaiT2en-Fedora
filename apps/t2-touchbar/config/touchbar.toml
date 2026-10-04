@@ -5,23 +5,23 @@ maximum_timeout_ms = 30000
 continuation_window_ms = 15000
 fn_long_press_ms = 600
 
-# t2tb_backlight has only a few hardware levels; values above its maximum are
+# t2tb_backlight has only a few hardware levels. Values above its maximum are
 # clamped by the daemon.
 active_brightness = 128
 haptic_feedback = true
 
 
 # Glyph color as #rrggbb. The default is a cool white that matches the slightly
-# blue keyboard backlight; outlines and the pressed state are derived from it.
+# blue keyboard backlight. Outlines and the pressed state are derived from it.
 key_color = "#dce6ff"
 
 # Multi-finger swipes. On the dark bar every volume_swipe_step_px of horizontal
 # two-finger travel sends one volume step (right is louder), and every
 # brightness_swipe_step_px of three-finger travel one display brightness step
-# (right is brighter); on the lit bar a two-finger swipe of
+# (right is brighter). On the lit bar a two-finger swipe of
 # mode_swipe_px switches between the media and F-key rows. A touch waits up to
 # two_finger_window_ms for a second finger before it wakes the bar or presses
-# a key; a tap shorter than that fires on release.
+# a key. A tap shorter than that fires on release.
 two_finger_window_ms = 100
 volume_swipe_step_px = 40
 brightness_swipe_step_px = 40

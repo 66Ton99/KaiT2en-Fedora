@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! Current volume and display brightness for the swipe feedback. The daemon
-//! only sends keys; the desktop applies them, so these are read back.
+//! only sends keys. The desktop applies them, so these are read back.
 
 use std::{
     fs,

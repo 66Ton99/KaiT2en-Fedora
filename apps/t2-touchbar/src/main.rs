@@ -7,6 +7,7 @@ mod gesture;
 mod haptic;
 mod kbdlight;
 mod keyboard;
+mod keys;
 mod levels;
 mod mpris;
 mod policy;
@@ -45,6 +46,7 @@ use display::Display;
 use gesture::{Swipe, SwipeKind};
 use haptic::Haptic;
 use keyboard::VirtualKeyboard;
+use keys::{CustomAction, CustomKey};
 use levels::{Level, Reader as LevelReader};
 use mpris::{Mpris, Track};
 use policy::{Mode, PersistentState, TimeoutLearner};
@@ -116,7 +118,7 @@ enum Contact {
     /// First finger, waiting whether a second one turns this into a swipe.
     Pending,
     Swipe,
-    /// Esc held on the dark bar; the bar stays dark.
+    /// Esc held on the dark bar. The bar stays dark.
     DarkEsc,
     /// Previous/next held: a tap on release, seeking once held long enough.
     MediaHold(usize),
@@ -213,6 +215,9 @@ struct Runtime {
     keyboard: VirtualKeyboard,
     haptic: Haptic,
     physical_escape: bool,
+    /// Personal keys from keys.toml, shown in the special row.
+    custom_keys: Vec<CustomKey>,
+    custom_labels: Vec<&'static str>,
     animation_start_ms: u64,
     next_animation_ms: Option<u64>,
 }
@@ -226,7 +231,13 @@ impl Runtime {
         let mut backlight = Backlight::open()?;
         backlight.set(0)?;
         let physical_escape = has_physical_escape();
-        let layout = Layout::new(state.mode, width, physical_escape);
+        let custom_keys = keys::load();
+        let custom_labels: Vec<&'static str> = custom_keys.iter().map(|key| key.label).collect();
+        let custom_codes: Vec<Key> = custom_keys
+            .iter()
+            .flat_map(|key| key.keys().iter().copied())
+            .collect();
+        let layout = Layout::with_custom(state.mode, width, physical_escape, &custom_labels);
         let haptic = Haptic::open(config.haptic_feedback);
         let (level_reader, level_wake) = LevelReader::spawn()?;
         level_wake.set_nonblocking(true)?;
@@ -268,9 +279,11 @@ impl Runtime {
             canvas,
             display,
             backlight,
-            keyboard: VirtualKeyboard::open()?,
+            keyboard: VirtualKeyboard::open(&custom_codes)?,
             haptic,
             physical_escape,
+            custom_keys,
+            custom_labels,
             animation_start_ms: 0,
             next_animation_ms: None,
         })
@@ -287,7 +300,12 @@ impl Runtime {
     }
 
     fn present_keys(&mut self) -> Result<()> {
-        self.layout = Layout::new(self.state.mode, self.canvas.width, self.physical_escape);
+        self.layout = Layout::with_custom(
+            self.state.mode,
+            self.canvas.width,
+            self.physical_escape,
+            &self.custom_labels,
+        );
         self.canvas.keys(&self.layout, self.active_button);
         if self.layer_fade.is_some() {
             return self.present_layer_fade(self.now_ms());
@@ -444,7 +462,7 @@ impl Runtime {
         self.contacts.insert(slot, Contact::Pending);
         if let Some(index) = button {
             if self.visible {
-                // Highlight at once; only the key event waits for the window.
+                // Highlight at once. Only the key event waits for the window.
                 self.active_button = button;
                 self.present_keys()?;
             } else {
@@ -525,7 +543,7 @@ impl Runtime {
         }
         match pending.button {
             Some(index) if self.media_direction(index).is_some() => {
-                // Stays highlighted; the action is decided on release or hold.
+                // Stays highlighted. The action is decided on release or hold.
                 let touched = pending.deadline_ms - self.config.two_finger_window_ms;
                 self.contacts
                     .insert(pending.slot, Contact::MediaHold(index));
@@ -614,7 +632,7 @@ impl Runtime {
         self.present_overlay()
     }
 
-    /// The overlay's previous key takes the first key slot after esc; next
+    /// The overlay's previous key takes the first key slot after esc. Next
     /// mirrors it on the right, as if an invisible esc sat there too. The
     /// keys stay in fixed places, esc keeps working and the text centers on
     /// the bar.
@@ -717,7 +735,7 @@ impl Runtime {
         }
     }
 
-    /// Follows the keyboard backlight; returns whether the level changed.
+    /// Follows the keyboard backlight. Returns whether the level changed.
     fn refresh_key_level(&mut self) -> bool {
         let level = if self.config.follow_keyboard_backlight {
             kbdlight::key_level().unwrap_or(100)
@@ -801,8 +819,15 @@ impl Runtime {
     }
 
     fn press_button(&mut self, index: usize, now: u64) -> Result<()> {
-        let Action::Key(key) = self.layout.buttons[index].action;
-        self.keyboard.press(key)?;
+        match self.layout.buttons[index].action {
+            Action::Key(key) => self.keyboard.press(key)?,
+            // Personal keys act once per tap. Holding repeats nothing.
+            Action::Custom(custom) => match self.custom_keys.get(custom).map(|key| &key.action) {
+                Some(CustomAction::Send(keys)) => self.keyboard.tap_combination(keys)?,
+                Some(CustomAction::Run(command)) => CustomKey::run(command),
+                None => {}
+            },
+        }
         self.haptic.click();
         self.active_button = Some(index);
         if self
@@ -998,7 +1023,7 @@ impl Runtime {
                 self.keyboard.release()?;
                 self.haptic.click();
                 if let Some(toast) = self.toast.as_mut() {
-                    // Stay fully visible; the next track replaces the text.
+                    // Stay fully visible. The next track replaces the text.
                     toast.pressed = None;
                     toast.start_ms = now.saturating_sub(TRACK_FADE_MS);
                 }
@@ -1103,7 +1128,7 @@ impl Runtime {
         }
         self.visible = true;
         let now = self.now_ms();
-        // Waiting, scanning and retry share the arrow; keep its swing smooth
+        // Waiting, scanning and retry share the arrow. Keep its swing smooth
         // across those transitions.
         if self.next_animation_ms.is_none() {
             self.animation_start_ms = now;
@@ -1113,7 +1138,7 @@ impl Runtime {
         self.backlight.set(self.config.active_brightness)
     }
 
-    /// Draws the prompt; while it shows an arrow, schedules the next frame.
+    /// Draws the prompt and schedules the next frame while it shows an arrow.
     fn render_touch_id(&mut self, now: u64) -> Result<()> {
         let animated = matches!(
             self.touch_id,
@@ -1442,7 +1467,7 @@ fn main() -> Result<()> {
                 match event {
                     // seat0 hands over every readable device, including the
                     // virtual keyboard this daemon writes to. Only Fn is
-                    // needed; closing the rest avoids wakeups from every
+                    // needed. Closing the rest avoids wakeups from every
                     // pointer motion and our own key events looping back.
                     Event::Device(DeviceEvent::Added(added)) if !provides_fn(&added.device()) => {
                         let _ = added

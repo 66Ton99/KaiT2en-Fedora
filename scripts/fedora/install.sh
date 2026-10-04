@@ -8,7 +8,7 @@ require_fedora
 require_min_kernel 7 0
 
 # Asked before anything runs so the rest of the installation is unattended.
-# KAIT2EN_INSTALL_TOUCHBAR=1|0 answers it ahead of time; without a terminal
+# KAIT2EN_INSTALL_TOUCHBAR=1|0 answers it ahead of time. Without a terminal
 # the previous default (install) is kept.
 ask_touchbar() {
 	local answer

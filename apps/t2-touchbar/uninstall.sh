@@ -48,7 +48,7 @@ restore_firmware_row() {
 	if [[ -x "$BIN" ]]; then
 		"$BIN" --detach
 	else
-		warn "$BIN is missing; reboot to restore the native Touch Bar row"
+		warn "$BIN is missing. Reboot to restore the native Touch Bar row"
 	fi
 }
 
@@ -77,7 +77,7 @@ run_step "restore the native Touch Bar row" restore_firmware_row
 run_step "remove kait2en-touchbar files" remove_files
 run_step "restore Touch Bar device access" restore_device_access
 
-info "kait2en-touchbar removed; the native Touch Bar row is active"
+info "kait2en-touchbar removed. The native Touch Bar row is active"
 if [[ -n "$target_user" ]]; then
 	info "personal settings and learned state were kept in ~$target_user/.config/kait2en-touchbar and ~$target_user/.local/state/kait2en-touchbar"
 fi

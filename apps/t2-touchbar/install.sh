@@ -98,10 +98,10 @@ configure_system() {
 	udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac --attr-match=idProduct=8102 --action=add
 	if device_access_ready; then
 		udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac --attr-match=idProduct=8302 --action=add
-		# Freshly built modules may only load after a reboot; the attach
+		# Freshly built modules may only load after a reboot. The attach
 		# helper then falls back to the firmware row by itself.
 		systemctl restart kait2en-touchbar-attach.service ||
-			warn "the Touch Bar display is not ready yet; it switches over after the next reboot"
+			warn "the Touch Bar display is not ready yet. It switches over after the next reboot"
 	else
 		# First install: the running session cannot open the panel before the
 		# reboot, so keep Apple's firmware row instead of switching the panel
@@ -127,7 +127,7 @@ activate_user_service() {
 		if [[ -S "/run/user/$target_uid/bus" ]]; then
 			user_systemctl stop kait2en-touchbar.service || true
 		fi
-		warn "reboot once so kait2en-touchbar receives its device-access group; the firmware Touch Bar remains available until then"
+		warn "reboot once so kait2en-touchbar receives its device-access group. The firmware Touch Bar remains available until then"
 	elif [[ -S "/run/user/$target_uid/bus" ]] &&
 		user_systemctl is-active --quiet graphical-session.target; then
 		user_systemctl daemon-reload

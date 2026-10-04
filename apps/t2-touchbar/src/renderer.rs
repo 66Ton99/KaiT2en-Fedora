@@ -14,6 +14,8 @@ use crate::policy::Mode;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Action {
     Key(Key),
+    /// Index into the personal keys from keys.toml.
+    Custom(usize),
 }
 
 #[derive(Clone, Copy)]
@@ -65,7 +67,18 @@ pub struct Layout {
 
 impl Layout {
     pub fn new(mode: Mode, width: u16, physical_escape: bool) -> Self {
-        // Keys inside a group sit KEY_GAP apart; groups are separated by the
+        Self::with_custom(mode, width, physical_escape, &[])
+    }
+
+    /// Like `new`, but the special row also shows `custom` labels in its
+    /// free space next to esc, as many as fit.
+    pub fn with_custom(
+        mode: Mode,
+        width: u16,
+        physical_escape: bool,
+        custom: &[&'static str],
+    ) -> Self {
+        // Keys inside a group sit KEY_GAP apart. Groups are separated by the
         // wider GROUP_GAP, like the clusters of a hardware function row.
         let mut groups: Vec<Vec<(Glyph, Key)>> = Vec::new();
         match mode {
@@ -169,6 +182,19 @@ impl Layout {
                 }
                 right = right.saturating_sub(GROUP_GAP - KEY_GAP);
             }
+            // Personal keys form one more group in the space that is left.
+            let space = right.saturating_sub(start);
+            let fit = usize::from((space + KEY_GAP) / (cell + KEY_GAP));
+            for (index, label) in custom.iter().enumerate().take(fit).rev() {
+                let left = right.saturating_sub(cell);
+                placed.push(Button {
+                    left,
+                    right,
+                    glyph: Glyph::Text(label),
+                    action: Action::Custom(index),
+                });
+                right = left.saturating_sub(KEY_GAP);
+            }
             buttons.extend(placed.into_iter().rev());
             return Self { buttons };
         }
@@ -228,7 +254,7 @@ const TRACK_GAP: f32 = 40.0;
 const ARROW_LENGTH: f32 = 22.0;
 const ARROW_GAP: f32 = 14.0;
 const ARROW_STROKE: f32 = 3.0;
-/// How far the arrow's tail moves towards the sensor; the tip moves twice as
+/// How far the arrow's tail moves towards the sensor. The tip moves twice as
 /// far.
 const ARROW_TAIL_TRAVEL: f32 = 7.0;
 const KEY_FONT_SIZE: f32 = 23.0;
@@ -730,7 +756,7 @@ impl Canvas {
         }
     }
 
-    /// Appends the glyph outlines of `text` at `weight`; returns the pen
+    /// Appends the glyph outlines of `text` at `weight` and returns the pen
     /// position after the last glyph.
     fn append_text(
         &mut self,
@@ -943,7 +969,7 @@ fn icon_shapes(icon: Icon) -> Vec<Shape> {
     shapes
 }
 
-/// Appends an open arc; angles are in degrees, clockwise from +x.
+/// Appends an open arc. Angles are in degrees, clockwise from +x.
 fn arc(path: &mut PathBuilder, cx: f32, cy: f32, radius: f32, from: f32, to: f32) {
     let steps = ((to - from).abs() / 6.0).ceil().max(2.0) as usize;
     for step in 0..=steps {
@@ -1037,6 +1063,23 @@ mod tests {
     }
 
     #[test]
+    fn personal_keys_fill_only_the_free_space() {
+        let labels = ["~", "|", "a", "b", "c", "d", "e"];
+        let special = Layout::with_custom(Mode::Special, 2170, false, &labels);
+        let custom: Vec<_> = special
+            .buttons
+            .iter()
+            .filter(|button| matches!(button.action, Action::Custom(_)))
+            .collect();
+        assert_eq!(custom.len(), 4, "four keys fit between esc and print");
+        assert_eq!(custom[0].action, Action::Custom(0));
+        assert!(custom[0].left > special.buttons[0].right + GROUP_GAP - 1);
+        for pair in special.buttons.windows(2) {
+            assert!(pair[0].right < pair[1].left);
+        }
+    }
+
+    #[test]
     fn touch_id_draws_only_near_the_sensor_and_label() {
         let mut canvas = Canvas::new(2170, 60, 0x00dce6ff).unwrap();
         canvas.touch_id("waiting", 0.5);
@@ -1062,7 +1105,10 @@ mod tests {
         save("media", &canvas);
         canvas.keys(&Layout::new(Mode::Function, 2170, false), None);
         save("function", &canvas);
-        canvas.keys(&Layout::new(Mode::Special, 2170, false), None);
+        canvas.keys(
+            &Layout::with_custom(Mode::Special, 2170, false, &["~", "|", "term"]),
+            None,
+        );
         save("special", &canvas);
         canvas.touch_id("waiting", 0.0);
         save("touchid", &canvas);

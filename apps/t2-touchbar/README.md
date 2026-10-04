@@ -15,9 +15,35 @@ Three fixed layers are available:
   up and page down
 
 A two-finger swipe on the lit bar moves through the layers in a ring (left
-brings in the next one from the right, sliding and fading); a 600 ms Fn hold
+brings in the next one from the right, sliding and fading). A 600 ms Fn hold
 switches between media keys and the other layer used last. The last layer is
 remembered.
+
+Up to three personal keys can fill the free space on the third layer. They live in
+`$XDG_CONFIG_HOME/kait2en-touchbar/keys.toml`, which updates and uninstalls 
+never touch. The daemon creates it with commented examples on its
+first start. Each key has a text label and either sends a key
+combination or starts a command:
+
+```toml
+[[key]]
+label = "~"
+send = "altgr+]"    # types ~ on the German layout
+
+[[key]]
+label = "|"
+send = "altgr+iso"
+
+[[key]]
+label = "term"
+run = "kgx"         # started through systemd-run --user
+```
+
+Modifiers are `ctrl`, `shift`, `alt` (or `option`), `altgr` and `super`. Key
+names follow the US key positions: letters, digits, `f1`–`f12`, punctuation
+such as `-`, `[`, `` ` `` or `\`, `iso` for the extra key next to the left
+shift, and names like `space`, `tab`, `enter`, `left` or `delete`. Restart the
+service after editing: `systemctl --user restart kait2en-touchbar`.
 
 A two-finger swipe on the dark bar changes the volume without waking it: right
 is louder, left is quieter. A three-finger swipe there changes the
@@ -29,12 +55,12 @@ again. It decays slowly when the learned extension is unused.
 
 While `t2-touchid` reports an authentication, all keys disappear and the bar
 shows "Unlock with Touch ID" with an arrow that keeps nudging towards the
-sensor. The prompt is drawn by this program; no Apple
+sensor. The prompt is drawn by this program. No Apple
 artwork is included. This works for sudo and the GNOME lock screen in the
 running user session.
 
 Holding previous or next seeks in the active media player (MPRIS) instead of
-skipping the track; a tap still skips.
+skipping the track. A tap still skips.
 
 When a media player starts a new track while the bar is dark, "Artist – Title"
 fades in for five seconds with previous/next keys at both ends, so an unwanted
@@ -45,7 +71,7 @@ Accepted key presses use `t2_trackpad_actuator` to give a bit of haptic feedback
 
 The panel itself only has two brightness steps. The key glyphs are therefore
 dimmed in software to follow the keyboard backlight, so the bar and the keys
-look alike; a readable minimum remains while the keyboard backlight is off.
+look alike. A readable minimum remains while the keyboard backlight is off.
 
 ## Installation
 

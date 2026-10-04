@@ -48,15 +48,16 @@ pub struct VirtualKeyboard {
 }
 
 impl VirtualKeyboard {
-    pub fn open() -> Result<Self> {
+    /// `extra` adds the keys of the personal keys file to the fixed set.
+    pub fn open(extra: &[Key]) -> Result<Self> {
         let file = OpenOptions::new()
             .write(true)
             .open("/dev/uinput")
             .context("open /dev/uinput")?;
         let handle = UInputHandle::new(file);
         handle.set_evbit(EventKind::Key)?;
-        for key in ALLOWED_KEYS {
-            handle.set_keybit(key)?;
+        for key in ALLOWED_KEYS.iter().chain(extra) {
+            handle.set_keybit(*key)?;
         }
         let mut name = [0 as c_char; 80];
         for (target, byte) in name.iter_mut().zip(b"T2 Touch Bar".iter().copied()) {
@@ -83,6 +84,18 @@ impl VirtualKeyboard {
         self.release()?;
         emit(&mut self.handle, key, 1)?;
         self.pressed = Some(key);
+        Ok(())
+    }
+
+    /// Taps a combination: modifiers and key down in order, up in reverse.
+    pub fn tap_combination(&mut self, keys: &[Key]) -> Result<()> {
+        self.release()?;
+        for key in keys {
+            emit(&mut self.handle, *key, 1)?;
+        }
+        for key in keys.iter().rev() {
+            emit(&mut self.handle, *key, 0)?;
+        }
         Ok(())
     }
 
