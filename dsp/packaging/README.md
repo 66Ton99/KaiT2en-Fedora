@@ -83,10 +83,6 @@ in contrast, fail the package build so incomplete packages are not produced.
 The independently shipped lifecycle engine requires Python 3. Its source
 lives under `packaging/lifecycle/`, separately from `auto-installer/`.
 
-The PipeWire quantum fragment preserves the former global 1024-sample default.
-It affects this PipeWire instance, including non-T2 devices. Administrators
-can override the same-named fragment in `/etc/pipewire/pipewire.conf.d/`.
-
 ## Licenses
 
 The package includes the full GPL-3.0-or-later text, `LICENSE`, `LICENSING.md`

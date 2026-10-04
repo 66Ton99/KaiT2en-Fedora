@@ -4655,6 +4655,7 @@
     "capture.props": {
         "node.name": "audio_effect.t2-162-speakers",
         "media.class": "Audio/Sink",
+        "node.pause-on-idle": "false",
         "audio.channels": "2",
         "audio.position": [
             "FL",
@@ -4677,6 +4678,7 @@
         "target.object": "alsa_output.hw_Audio_0",
         "node.dont-fallback": "true",
         "node.passive": "true",
+        "node.pause-on-idle": "false",
         "audio.channels": "4",
         "audio.allowed-rates": [
             48000,

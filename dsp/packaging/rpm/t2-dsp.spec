@@ -70,7 +70,6 @@ exit 0
 %{_datadir}/t2-dsp/
 %{_datadir}/wireplumber/wireplumber.conf.d/51-t2-dsp.conf
 %{_datadir}/wireplumber/scripts/t2-default-output.lua
-%{_datadir}/pipewire/pipewire.conf.d/50-kait2en-quantum.conf
 %{_prefix}/lib/udev/rules.d/89-t2-dsp.rules
 %{_libexecdir}/t2-dsp/
 
