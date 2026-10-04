@@ -341,3 +341,18 @@ items:
       The finger enrolled under macOS unlocks login and sudo on Linux through
       stock fprintd, with nothing patched. Aimed at a libfprint driver upstream.
       Enrollment on Linux is prepared through T2sep, but not implemented.
+
+  - id: t2-touch-bar
+    title: "T2 Touch Bar"
+    state: available
+    upstream: downstream
+    project: KAIT2EN Fedora
+    subsystem: t2bdrm / t2touchbar
+    authors:
+      - deqrocks
+    link: post-install/kait2en-applications.md
+    updated: "2026-10-04"
+    notes: >-
+      Optional Touch Bar daemon that stays dark until touched, with media and
+      F-key rows, multitouch gestures for volume and brightness, the Touch ID
+      prompt and track changes from media players.
