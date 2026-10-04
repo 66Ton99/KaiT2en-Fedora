@@ -70,3 +70,7 @@ if (( build_status == 0 )); then
 else
 	record_error "Touch ID installation skipped because its build failed; existing installation retained"
 fi
+
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != root ]]; then
+	clean_cargo_build "$COMPONENT" "$SUDO_USER"
+fi

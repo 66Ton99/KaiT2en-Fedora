@@ -131,7 +131,7 @@ run_project_installer() {
 	printf 'Administrator access is required.\n\n'
 	sudo -v
 	cd "$repository"
-	if ! sudo bash ./scripts/fedora/install.sh; then
+	if ! sudo env "KAIT2EN_CARGO_CLEAN=${KAIT2EN_CARGO_CLEAN:-1}" bash ./scripts/fedora/install.sh; then
 		printf '\nKaiT2en attempted all independent installation steps, but reported errors.\n' >&2
 		printf 'Review the error summary above and rerun kait2en-install after resolving them.\n' >&2
 		printf 'The installation is not marked complete.\n' >&2

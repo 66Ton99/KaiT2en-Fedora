@@ -51,9 +51,7 @@ device_access_ready() {
 }
 
 clean_build() {
-	if ! sudo -H -u "$target_user" make -C "$APP_DIR" clean; then
-		warn "could not remove Cargo build artifacts below $APP_DIR"
-	fi
+	clean_cargo_build "$APP_DIR" "$target_user"
 }
 
 install_dependencies() {

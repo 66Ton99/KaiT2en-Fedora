@@ -34,9 +34,7 @@ remove_obsolete_apps() {
 
 clean_rust_build() {
 	local path=$1 target_user=$2
-	if ! sudo -H -u "$target_user" make -C "$path" clean; then
-		warn "could not remove build artifacts below $path"
-	fi
+	clean_cargo_build "$path" "$target_user"
 }
 
 install_rust_app() {
