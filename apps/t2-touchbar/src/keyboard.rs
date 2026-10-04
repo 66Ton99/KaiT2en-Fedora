@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use input_linux::{EventKind, Key, SynchronizeKind, uinput::UInputHandle};
 use input_linux_sys::{input_event, input_id, timeval, uinput_setup};
 
-const ALLOWED_KEYS: [Key; 26] = [
+const ALLOWED_KEYS: [Key; 33] = [
     Key::Esc,
     Key::F1,
     Key::F2,
@@ -28,6 +28,13 @@ const ALLOWED_KEYS: [Key; 26] = [
     Key::PreviousSong,
     Key::PlayPause,
     Key::NextSong,
+    Key::Sysrq,
+    Key::Insert,
+    Key::Delete,
+    Key::Home,
+    Key::End,
+    Key::PageUp,
+    Key::PageDown,
     Key::Rewind,
     Key::FastForward,
     Key::Mute,

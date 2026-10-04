@@ -7,14 +7,20 @@ to switch), shows a Touch ID prompt and gives haptic
 feedback on key presses. It saves power because the bar is off most of
 the time.
 
-Two fixed layers are available:
+Three fixed layers are available:
 
 - media keys
 - F-keys
+- keys the MacBook keyboard lacks: print, insert, delete, home, end, page
+  up and page down
 
-A 600 ms Fn hold or a two-finger swipe on the lit bar switches the persistent
-layer. A two-finger swipe on the dark bar changes the volume without waking
-it: right is louder, left is quieter. A three-finger swipe there changes the
+A two-finger swipe on the lit bar moves through the layers in a ring (left
+brings in the next one from the right, sliding and fading); a 600 ms Fn hold
+switches between media keys and the other layer used last. The last layer is
+remembered.
+
+A two-finger swipe on the dark bar changes the volume without waking it: right
+is louder, left is quieter. A three-finger swipe there changes the
 display brightness the same way. The esc slot works on the dark bar too and
 sends Esc without waking it. A short Fn press and a touch elsewhere both wake
 the saved layer. The initial five-second illumination timeout learns

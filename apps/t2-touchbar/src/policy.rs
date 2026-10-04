@@ -13,13 +13,35 @@ pub enum Mode {
     #[default]
     Media,
     Function,
+    /// Keys a MacBook keyboard lacks or hides: print, insert, delete, ...
+    Special,
 }
 
 impl Mode {
-    pub fn toggled(self) -> Self {
+    /// Fn hold switches between the media row and `alternate`, the other
+    /// row that was used last.
+    pub fn toggled(self, alternate: Self) -> Self {
+        match self {
+            Self::Media if alternate != Self::Media => alternate,
+            Self::Media => Self::Function,
+            Self::Function | Self::Special => Self::Media,
+        }
+    }
+
+    /// The rows form a ring, so every row is one swipe away.
+    pub fn next(self) -> Self {
         match self {
             Self::Media => Self::Function,
+            Self::Function => Self::Special,
+            Self::Special => Self::Media,
+        }
+    }
+
+    pub fn previous(self) -> Self {
+        match self {
+            Self::Media => Self::Special,
             Self::Function => Self::Media,
+            Self::Special => Self::Function,
         }
     }
 }
@@ -45,8 +67,11 @@ impl Default for LearnedTimeout {
 #[serde(default)]
 pub struct PersistentState {
     pub mode: Mode,
+    /// The last row other than media keys, the target of an Fn hold.
+    pub alternate: Mode,
     pub media: LearnedTimeout,
     pub function: LearnedTimeout,
+    pub special: LearnedTimeout,
 }
 
 impl PersistentState {
@@ -81,6 +106,7 @@ impl PersistentState {
         match mode {
             Mode::Media => &self.media,
             Mode::Function => &self.function,
+            Mode::Special => &self.special,
         }
     }
 
@@ -88,11 +114,20 @@ impl PersistentState {
         match mode {
             Mode::Media => &mut self.media,
             Mode::Function => &mut self.function,
+            Mode::Special => &mut self.special,
+        }
+    }
+
+    /// Switches rows and remembers the last non-media one.
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        if mode != Mode::Media {
+            self.alternate = mode;
         }
     }
 
     fn clamp(&mut self, config: &Config) {
-        for learned in [&mut self.media, &mut self.function] {
+        for learned in [&mut self.media, &mut self.function, &mut self.special] {
             learned.timeout_ms = learned
                 .timeout_ms
                 .clamp(config.minimum_timeout_ms, config.maximum_timeout_ms);
@@ -240,6 +275,17 @@ fn state_extension_exists(_mode: Mode, config: &Config, now_ms: u64, reference_m
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fn_hold_returns_to_the_last_used_row() {
+        let mut state = PersistentState::default();
+        assert_eq!(state.mode.toggled(state.alternate), Mode::Function);
+        state.set_mode(Mode::Special);
+        state.set_mode(Mode::Media);
+        assert_eq!(state.mode.toggled(state.alternate), Mode::Special);
+        state.set_mode(Mode::Special);
+        assert_eq!(state.mode.toggled(state.alternate), Mode::Media);
+    }
 
     fn config() -> Config {
         Config::default()

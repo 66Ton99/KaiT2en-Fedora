@@ -91,8 +91,9 @@ Optional. The installer only asks on models with a Touch Bar. Without it,
 Apple's native Touch Bar keeps working.
 
 Keeps the Touch Bar dark until it is touched or Fn is pressed and offers a
-media row and an F-key row. Two-finger swipes change the volume on the dark bar
-and switch between F-keys and media keys on the lit one. Three fingers change
+media row, an F-key row and a row with print, insert, delete, home, end and
+page keys. Two-finger swipes change the volume on the dark bar and move through
+the rows on the lit one. Three fingers change
 the display brightness. Touch ID shows an "Unlock with Touch ID" prompt, and 
 new tracks from media players briefly appear on the dark bar.
 Reboot once after the first install.

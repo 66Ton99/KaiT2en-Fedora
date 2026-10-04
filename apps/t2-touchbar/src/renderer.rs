@@ -116,6 +116,19 @@ impl Layout {
                     (Glyph::Icon(Icon::Volume(true)), Key::VolumeUp),
                 ],
             ]),
+            Mode::Special => groups.extend([
+                vec![(Glyph::Text("print"), Key::Sysrq)],
+                vec![
+                    (Glyph::Text("insert"), Key::Insert),
+                    (Glyph::Text("delete"), Key::Delete),
+                ],
+                vec![
+                    (Glyph::Text("home"), Key::Home),
+                    (Glyph::Text("end"), Key::End),
+                    (Glyph::Text("page up"), Key::PageUp),
+                    (Glyph::Text("page down"), Key::PageDown),
+                ],
+            ]),
         }
 
         // esc keeps the same slot in every mode, so switching layers only
@@ -131,6 +144,33 @@ impl Layout {
                 action: Action::Key(Key::Esc),
             });
             start = right + GROUP_GAP;
+        }
+
+        if mode == Mode::Special {
+            // Fewer keys than fit: keep the media key width and align them
+            // to the right edge, leaving the space next to esc free.
+            let media = Self::new(Mode::Media, width, physical_escape);
+            let cell = media
+                .buttons
+                .last()
+                .map_or(width / 14, |button| button.right - button.left);
+            let mut right = width.saturating_sub(KEY_GAP);
+            let mut placed = Vec::new();
+            for group in groups.into_iter().rev() {
+                for (glyph, key) in group.into_iter().rev() {
+                    let left = right.saturating_sub(cell);
+                    placed.push(Button {
+                        left,
+                        right,
+                        glyph,
+                        action: Action::Key(key),
+                    });
+                    right = left.saturating_sub(KEY_GAP);
+                }
+                right = right.saturating_sub(GROUP_GAP - KEY_GAP);
+            }
+            buttons.extend(placed.into_iter().rev());
+            return Self { buttons };
         }
 
         // The remaining span is filled edge to edge. Rounding leftovers widen
@@ -963,7 +1003,7 @@ mod tests {
 
     #[test]
     fn layouts_have_no_overlapping_buttons() {
-        for mode in [Mode::Media, Mode::Function] {
+        for mode in [Mode::Media, Mode::Function, Mode::Special] {
             let layout = Layout::new(mode, 2170, false);
             for pair in layout.buttons.windows(2) {
                 assert!(pair[0].right < pair[1].left);
@@ -981,6 +1021,19 @@ mod tests {
             (first.left, first.right, layout.buttons[1].left, last.right)
         };
         assert_eq!(edges(&media), edges(&function));
+        // The special row keeps esc and the right edge, and the media width.
+        let special = Layout::new(Mode::Special, 2170, false);
+        let (esc, last) = (
+            special.buttons[0],
+            special.buttons[special.buttons.len() - 1],
+        );
+        let media_last = media.buttons[media.buttons.len() - 1];
+        assert_eq!(
+            (esc.left, esc.right),
+            (media.buttons[0].left, media.buttons[0].right)
+        );
+        assert_eq!(last.right, media_last.right);
+        assert_eq!(last.right - last.left, media_last.right - media_last.left);
     }
 
     #[test]
@@ -1009,6 +1062,8 @@ mod tests {
         save("media", &canvas);
         canvas.keys(&Layout::new(Mode::Function, 2170, false), None);
         save("function", &canvas);
+        canvas.keys(&Layout::new(Mode::Special, 2170, false), None);
+        save("special", &canvas);
         canvas.touch_id("waiting", 0.0);
         save("touchid", &canvas);
         canvas.touch_id("waiting", 1.0);

@@ -47,7 +47,7 @@ use haptic::Haptic;
 use keyboard::VirtualKeyboard;
 use levels::{Level, Reader as LevelReader};
 use mpris::{Mpris, Track};
-use policy::{PersistentState, TimeoutLearner};
+use policy::{Mode, PersistentState, TimeoutLearner};
 use renderer::{Action, Canvas, Layout, LevelKind, TrackLayout};
 use touchid::TouchIdState;
 
@@ -60,6 +60,12 @@ const LEVEL_LINGER_MS: u64 = 700;
 /// value is read back repeatedly for a short while after each step.
 const LEVEL_POLL_MS: u64 = 80;
 const LEVEL_POLL_WINDOW_MS: u64 = 600;
+/// Switching rows slides both rows this far while they crossfade, so the
+/// direction is clear without a long, fast travel across the whole bar.
+const LAYER_SLIDE_PX: f32 = 100.0;
+/// Switching rows takes this long, at about 50 fps.
+const LAYER_FADE_MS: u64 = 350;
+const LAYER_FRAME_MS: u64 = 20;
 /// Track overlay timeline: fade in, hold, fade out.
 const TRACK_FADE_MS: u64 = 700;
 const TRACK_HOLD_MS: u64 = 5_000;
@@ -116,6 +122,18 @@ enum Contact {
     MediaHold(usize),
     /// A key of the track overlay on the dark bar; `true` is next.
     TrackKey(bool),
+}
+
+/// Crossfade from the previous row to the current one.
+struct LayerFade {
+    /// The frame that was on screen when the switch started.
+    from: Vec<u32>,
+    start_ms: u64,
+    next_ms: u64,
+    /// `1` when the new row comes in from the right, `-1` from the left.
+    direction: i32,
+    /// Everything left of this column (esc) stays in place.
+    clip_left: usize,
 }
 
 /// "Artist – Title" shown on the dark bar when a new track starts.
@@ -183,6 +201,9 @@ struct Runtime {
     media_hold: Option<MediaHold>,
     mpris: Mpris,
     toast: Option<TrackToast>,
+    layer_fade: Option<LayerFade>,
+    /// The blended frame while a crossfade runs.
+    blended: Vec<u32>,
     touches_armed: bool,
     active_button: Option<usize>,
     layout: Layout,
@@ -239,6 +260,8 @@ impl Runtime {
             media_hold: None,
             mpris: Mpris::default(),
             toast: None,
+            layer_fade: None,
+            blended: Vec::new(),
             touches_armed: true,
             active_button: None,
             layout,
@@ -266,8 +289,43 @@ impl Runtime {
     fn present_keys(&mut self) -> Result<()> {
         self.layout = Layout::new(self.state.mode, self.canvas.width, self.physical_escape);
         self.canvas.keys(&self.layout, self.active_button);
+        if self.layer_fade.is_some() {
+            return self.present_layer_fade(self.now_ms());
+        }
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)
+    }
+
+    /// Shows the crossfade between the previous row and the freshly drawn
+    /// current one for `now`, and ends it once the current row is complete.
+    fn present_layer_fade(&mut self, now: u64) -> Result<()> {
+        let Some(fade) = self.layer_fade.as_mut() else {
+            return Ok(());
+        };
+        let elapsed = now.saturating_sub(fade.start_ms);
+        if elapsed >= LAYER_FADE_MS {
+            self.layer_fade = None;
+            return self.display.present(
+                &self.canvas.pixels,
+                self.canvas.width,
+                self.canvas.height,
+            );
+        }
+        fade.next_ms = now + LAYER_FRAME_MS;
+        let t = elapsed as f32 / LAYER_FADE_MS as f32;
+        let eased = t * t * (3.0 - 2.0 * t);
+        self.blended.resize(self.canvas.pixels.len(), 0);
+        compose_slide(
+            &fade.from,
+            &self.canvas.pixels,
+            &mut self.blended,
+            usize::from(self.canvas.width),
+            fade.clip_left,
+            fade.direction,
+            eased,
+        );
+        self.display
+            .present(&self.blended, self.canvas.width, self.canvas.height)
     }
 
     fn wake(&mut self, quarantine_touch: bool) -> Result<()> {
@@ -285,6 +343,7 @@ impl Runtime {
         self.level_kind = None;
         self.level_poll_ms = None;
         self.toast = None;
+        self.layer_fade = None;
         if quarantine_touch {
             self.touches_armed = false;
         }
@@ -310,6 +369,7 @@ impl Runtime {
         self.level_kind = None;
         self.level_poll_ms = None;
         self.toast = None;
+        self.layer_fade = None;
         self.canvas.clear();
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
@@ -559,7 +619,9 @@ impl Runtime {
     /// keys stay in fixed places, esc keeps working and the text centers on
     /// the bar.
     fn track_keys(&self) -> TrackLayout {
-        let first = &self.layout.buttons[usize::from(self.is_esc(0))];
+        // Taken from the media row, whose keys fill the whole bar.
+        let media = Layout::new(Mode::Media, self.canvas.width, self.physical_escape);
+        let first = &media.buttons[usize::from(!self.physical_escape)];
         let width = self.canvas.width;
         TrackLayout {
             prev: (first.left, first.right),
@@ -870,7 +932,14 @@ impl Runtime {
             }
             SwipeKind::Mode => {
                 self.haptic.click();
-                self.switch_mode(now)
+                // The rows follow the fingers: swiping left brings in the
+                // next row from the right. The ring wraps around.
+                let mode = if steps < 0 {
+                    self.state.mode.next()
+                } else {
+                    self.state.mode.previous()
+                };
+                self.switch_mode(mode, now)
             }
         }
     }
@@ -984,13 +1053,37 @@ impl Runtime {
             return Ok(());
         }
         self.fn_toggled = true;
-        self.switch_mode(now)
+        self.switch_mode(self.state.mode.toggled(self.state.alternate), now)
     }
 
-    fn switch_mode(&mut self, now: u64) -> Result<()> {
+    fn switch_mode(&mut self, mode: Mode, now: u64) -> Result<()> {
         self.keyboard.release()?;
         self.active_button = None;
-        self.state.mode = self.state.mode.toggled();
+        // Fade from whatever is on screen, even from a running fade.
+        let from = match self.layer_fade {
+            Some(_) => self.blended.clone(),
+            None => self.canvas.pixels.clone(),
+        };
+        // Forward around the ring comes in from the right, like a swipe to
+        // the left; Fn hold picks its direction the same way.
+        let direction = if mode == self.state.mode.next() {
+            1
+        } else {
+            -1
+        };
+        let clip_left = if self.physical_escape {
+            0
+        } else {
+            usize::from(self.layout.buttons[0].right) + 1
+        };
+        self.layer_fade = Some(LayerFade {
+            from,
+            start_ms: now,
+            next_ms: now,
+            direction,
+            clip_left,
+        });
+        self.state.set_mode(mode);
         self.save();
         self.deadline_ms = Some(now + self.state.learned(self.state.mode).timeout_ms);
         self.present_keys()
@@ -998,6 +1091,7 @@ impl Runtime {
 
     fn touch_id_changed(&mut self, state: TouchIdState) -> Result<()> {
         self.touch_id = state;
+        self.layer_fade = None;
         self.keyboard.release()?;
         self.active_button = None;
         self.clear_touches();
@@ -1042,6 +1136,13 @@ impl Runtime {
         let now = self.now_ms();
         self.resolve_pending(now)?;
         if self
+            .layer_fade
+            .as_ref()
+            .is_some_and(|fade| now >= fade.next_ms)
+        {
+            self.present_layer_fade(now)?;
+        }
+        if self
             .toast
             .as_ref()
             .and_then(|toast| toast.next_ms)
@@ -1084,6 +1185,9 @@ impl Runtime {
     fn next_timeout(&self) -> i32 {
         let now = self.now_ms();
         let mut deadlines = Vec::new();
+        if let Some(fade) = &self.layer_fade {
+            deadlines.push(fade.next_ms);
+        }
         if let Some(deadline) = self.toast.as_ref().and_then(|toast| toast.next_ms) {
             deadlines.push(deadline);
         }
@@ -1118,6 +1222,48 @@ impl Runtime {
             .min()
             .map(|deadline| deadline.saturating_sub(now).min(i32::MAX as u64) as i32)
             .unwrap_or(-1)
+    }
+}
+
+/// One frame of a row switch: the old row slides out by `LAYER_SLIDE_PX` in
+/// `direction` while the new one slides in from the other side, crossfading
+/// by `progress` (0..1). Columns left of `clip_left` show the new row as is.
+fn compose_slide(
+    from: &[u32],
+    to: &[u32],
+    out: &mut [u32],
+    width: usize,
+    clip_left: usize,
+    direction: i32,
+    progress: f32,
+) {
+    let shift_out = (direction as f32 * LAYER_SLIDE_PX * progress).round() as isize;
+    let shift_in = (direction as f32 * LAYER_SLIDE_PX * (1.0 - progress)).round() as isize;
+    let mix = (progress * 256.0) as u32;
+    let sample = |frame: &[u32], row: usize, x: isize| -> u32 {
+        if x < clip_left as isize || x >= width as isize {
+            0
+        } else {
+            frame[row + x as usize]
+        }
+    };
+    for (row_index, out_row) in out.chunks_mut(width).enumerate() {
+        let row = row_index * width;
+        for (x, pixel) in out_row.iter_mut().enumerate() {
+            if x < clip_left {
+                *pixel = to[row + x];
+                continue;
+            }
+            // The old row moved by -shift_out, the new one still lags by
+            // shift_in, so each samples its source that far to the side.
+            let old = sample(from, row, x as isize + shift_out);
+            let new = sample(to, row, x as isize - shift_in);
+            let channel = |shift: u32| {
+                let (a, b) = ((old >> shift) & 0xff, (new >> shift) & 0xff);
+                ((a * (256 - mix) + b * mix) >> 8) << shift
+            };
+            *pixel = channel(16) | channel(8) | channel(0);
+        }
     }
 }
 
@@ -1357,6 +1503,30 @@ mod tests {
     fn touch_bar_names_are_narrow() {
         assert!(is_touch_bar("Apple Inc. Touch Bar Display Touchpad"));
         assert!(!is_touch_bar("Apple Internal Keyboard / Trackpad"));
+    }
+
+    #[test]
+    fn row_switch_slides_and_keeps_esc() {
+        // One row, 300 px: esc left of column 10, a lit pixel at 150.
+        let width = 300;
+        let mut from = vec![0; width];
+        let mut to = vec![0; width];
+        from[150] = 0x00ff_ffff;
+        to[150] = 0x00ff_ffff;
+        from[5] = 0x0011_1111;
+        to[5] = 0x0022_2222;
+        let mut out = vec![0; width];
+        // Halfway through a forward switch: the old pixel moved 50 px left,
+        // the new one is still 50 px to the right, both half bright.
+        compose_slide(&from, &to, &mut out, width, 10, 1, 0.5);
+        assert_eq!(out[100], 0x007f_7f7f);
+        assert_eq!(out[200], 0x007f_7f7f);
+        assert_eq!(out[150], 0);
+        assert_eq!(out[5], 0x0022_2222, "esc is never moved or blended");
+        // At the end only the new row remains, in place.
+        compose_slide(&from, &to, &mut out, width, 10, 1, 1.0);
+        assert_eq!(out[150], 0x00ff_ffff);
+        assert_eq!(out[100], 0);
     }
 
     #[test]
