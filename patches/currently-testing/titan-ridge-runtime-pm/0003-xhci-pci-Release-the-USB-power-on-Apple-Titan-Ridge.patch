@@ -1,4 +1,4 @@
-From a61305f3cd0cdf83733dc4435deff57bb5802f1c Mon Sep 17 00:00:00 2001
+From 3c236e4106f172767d852db4335f6e9063069360 Mon Sep 17 00:00:00 2001
 From: Andre Eikmeyer <dev@deq.rocks>
 Date: Sun, 4 Oct 2026 15:51:47 +0200
 Subject: [PATCH 3/3] xhci-pci: Release the USB power on Apple Titan Ridge

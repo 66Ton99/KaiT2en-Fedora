@@ -1,4 +1,4 @@
-From d7550747be26f542239487590ba3e32ac61c009f Mon Sep 17 00:00:00 2001
+From ddb3c6553d367cfa6cef97789f1160e81579460b Mon Sep 17 00:00:00 2001
 From: Andre Eikmeyer <dev@deq.rocks>
 Date: Sun, 4 Oct 2026 15:49:48 +0200
 Subject: [PATCH 2/3] thunderbolt: Release the router power on Apple Titan
@@ -9,14 +9,19 @@ runtime power control for macOS: the OS releases the router through the
 RTPC method of the NHI, and only then do the D3 methods of the
 controller ports (_PS3 of the downstream port and of the PEG root port)
 disable the links, power down the PEG PHY and turn off the controller
-rails. Linux never calls RTPC, so the controller stays powered while the
-NHI and its ports are runtime suspended.
+rails. Linux never calls RTPC, so the controller stays powered.
+
+It also never gets there. The software connection manager only enables
+runtime PM of USB4 host routers, so the Titan Ridge host router stays
+active and keeps the domain and the NHI from runtime suspending.
 
 Add NHI operations for Apple Titan Ridge controllers that provide RTPC.
-Release the router when the NHI runtime suspends and request it again
-when it resumes. The _PS0 methods of the ports turn the rails back on
-regardless of the release, so the PCI core's resume order brings the
-controller up before the NHI resume callback runs.
+They mark the host so that the connection manager enables runtime PM of
+its router, release the router when the NHI runtime suspends and request
+it again when it resumes. The _PS0 methods of the ports turn the rails
+back on regardless of the release, so the PCI core's resume order
+brings the controller up before the NHI resume callback runs, and the
+router is reconfigured on resume as it is after system sleep.
 
 While the controller is off, the firmware reports a hotplug event with
 a Bus Check notification on the NHI (AMPE from the _E4B/_E4C handlers).
@@ -25,11 +30,26 @@ enumerate the new device.
 
 Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
 ---
- drivers/thunderbolt/pci.c | 97 +++++++++++++++++++++++++++++++++++++++
- 1 file changed, 97 insertions(+)
+ drivers/thunderbolt/nhi.h |   2 +
+ drivers/thunderbolt/pci.c | 103 ++++++++++++++++++++++++++++++++++++++
+ drivers/thunderbolt/tb.c  |   9 +++-
+ 3 files changed, 112 insertions(+), 2 deletions(-)
 
+diff --git a/drivers/thunderbolt/nhi.h b/drivers/thunderbolt/nhi.h
+index d488ead..c16036f 100644
+--- a/drivers/thunderbolt/nhi.h
++++ b/drivers/thunderbolt/nhi.h
+@@ -121,6 +121,8 @@ struct tb_nhi_ops {
+ /* Host interface quirks */
+ #define QUIRK_AUTO_CLEAR_INT	BIT(0)
+ #define QUIRK_E2E		BIT(1)
++/* The platform powers the host router down while the NHI is runtime suspended */
++#define QUIRK_HOST_RPM		BIT(2)
+ 
+ /*
+  * Minimal number of vectors when we use MSI-X. Two for control channel
 diff --git a/drivers/thunderbolt/pci.c b/drivers/thunderbolt/pci.c
-index bbd186c..4b67418 100644
+index bbd186c..00a5991 100644
 --- a/drivers/thunderbolt/pci.c
 +++ b/drivers/thunderbolt/pci.c
 @@ -6,6 +6,7 @@
@@ -48,7 +68,7 @@ index bbd186c..4b67418 100644
  
  #include "nhi.h"
  #include "nhi_regs.h"
-@@ -261,6 +263,99 @@ static const struct tb_nhi_ops pci_nhi_default_ops = {
+@@ -261,6 +263,105 @@ static const struct tb_nhi_ops pci_nhi_default_ops = {
  	.init_interrupts = nhi_pci_init_msi,
  };
  
@@ -108,6 +128,12 @@ index bbd186c..4b67418 100644
 +{
 +	acpi_status status;
 +
++	/*
++	 * Titan Ridge is not a USB4 router, so the software connection
++	 * manager only enables runtime PM of its host router with this.
++	 */
++	nhi->quirks |= QUIRK_HOST_RPM;
++
 +	status = acpi_install_notify_handler(ACPI_HANDLE(nhi->dev),
 +					     ACPI_SYSTEM_NOTIFY,
 +					     apple_nhi_notify, nhi);
@@ -148,7 +174,7 @@ index bbd186c..4b67418 100644
  /* Ice Lake specific NHI operations */
  
  #define ICL_LC_MAILBOX_TIMEOUT	500 /* ms */
-@@ -465,6 +560,8 @@ static int nhi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+@@ -465,6 +566,8 @@ static int nhi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
  	nhi = &nhi_pci->nhi;
  	nhi->dev = dev;
  	nhi->ops = (const struct tb_nhi_ops *)id->driver_data ?: &pci_nhi_default_ops;
@@ -157,6 +183,33 @@ index bbd186c..4b67418 100644
  
  	nhi->iobase = pcim_iomap_region(pdev, 0, "thunderbolt");
  	res = PTR_ERR_OR_ZERO(nhi->iobase);
+diff --git a/drivers/thunderbolt/tb.c b/drivers/thunderbolt/tb.c
+index f43f2d9..8b6f376 100644
+--- a/drivers/thunderbolt/tb.c
++++ b/drivers/thunderbolt/tb.c
+@@ -12,6 +12,7 @@
+ #include <linux/pm_runtime.h>
+ #include <linux/platform_data/x86/apple.h>
+ 
++#include "nhi.h"
+ #include "tb.h"
+ #include "tb_regs.h"
+ #include "tunnel.h"
+@@ -3012,8 +3013,12 @@ static int tb_start(struct tb *tb, bool reset)
+ 	 * implement the necessary router operations.
+ 	 */
+ 	tb->root_switch->no_nvm_upgrade = !tb_switch_is_usb4(tb->root_switch);
+-	/* All USB4 routers support runtime PM */
+-	tb->root_switch->rpm = tb_switch_is_usb4(tb->root_switch);
++	/*
++	 * All USB4 routers support runtime PM. Thunderbolt 3 host routers
++	 * do when the platform powers them down while runtime suspended.
++	 */
++	tb->root_switch->rpm = tb_switch_is_usb4(tb->root_switch) ||
++			       (tb->nhi->quirks & QUIRK_HOST_RPM);
+ 
+ 	ret = tb_switch_configure(tb->root_switch);
+ 	if (ret) {
 -- 
 2.55.0
 
