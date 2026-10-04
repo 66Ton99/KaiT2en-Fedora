@@ -356,3 +356,17 @@ items:
       Optional Touch Bar daemon that stays dark until touched, with media and
       F-key rows, multitouch gestures for volume and brightness, the Touch ID
       prompt and track changes from media players.
+
+  - id: imac-5k
+    title: "5K display on iMac20,1 and iMac20,2"
+    state: available
+    upstream: downstream
+    project: KAIT2EN Fedora
+    subsystem: DRM / amdgpu
+    authors:
+      - byte
+    updated: "2026-10-03"
+    notes: >-
+      Drives the internal 5K panel at full resolution by genlocking the two
+      display streams that feed it. Ships as an amdgpu patch in the KAIT2EN
+      kernel builds.
