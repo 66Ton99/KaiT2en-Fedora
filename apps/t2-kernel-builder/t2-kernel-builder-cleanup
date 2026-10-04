@@ -68,6 +68,12 @@ if len(sys.argv) in (4, 5) and sys.argv[1] == "install-kernel":
     actual = subprocess.run(["make", "-s", "-C", str(tree), "kernelrelease"],
                             text=True, capture_output=True)
     if actual.returncode or actual.stdout.strip() != release: fail("kernel release validation failed")
+    # t2bce_ave in the t2bce_stack DKMS build links against v4l2-mem2mem.
+    # Refuse before touching the system instead of rolling back after DKMS.
+    if not re.search(r"^CONFIG_V4L2_MEM2MEM_DEV=[ym]$",
+                     (tree / ".config").read_text(encoding="utf-8"), re.MULTILINE):
+        fail("kernel config lacks CONFIG_V4L2_MEM2MEM_DEV required by t2bce_ave, "
+             "rebuild it with the current kernel builder")
     module_dir = pathlib.Path("/lib/modules") / release
     boot_paths = [pathlib.Path("/boot") / name for name in
                   (f"vmlinuz-{release}", f"initramfs-{release}.img",
