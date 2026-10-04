@@ -1,0 +1,162 @@
+From d7550747be26f542239487590ba3e32ac61c009f Mon Sep 17 00:00:00 2001
+From: Andre Eikmeyer <dev@deq.rocks>
+Date: Sun, 4 Oct 2026 15:49:48 +0200
+Subject: [PATCH 2/3] thunderbolt: Release the router power on Apple Titan
+ Ridge
+
+On Macs with a Titan Ridge controller the firmware implements the
+runtime power control for macOS: the OS releases the router through the
+RTPC method of the NHI, and only then do the D3 methods of the
+controller ports (_PS3 of the downstream port and of the PEG root port)
+disable the links, power down the PEG PHY and turn off the controller
+rails. Linux never calls RTPC, so the controller stays powered while the
+NHI and its ports are runtime suspended.
+
+Add NHI operations for Apple Titan Ridge controllers that provide RTPC.
+Release the router when the NHI runtime suspends and request it again
+when it resumes. The _PS0 methods of the ports turn the rails back on
+regardless of the release, so the PCI core's resume order brings the
+controller up before the NHI resume callback runs.
+
+While the controller is off, the firmware reports a hotplug event with
+a Bus Check notification on the NHI (AMPE from the _E4B/_E4C handlers).
+Resume the NHI on that notification so the connection manager can
+enumerate the new device.
+
+Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
+---
+ drivers/thunderbolt/pci.c | 97 +++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 97 insertions(+)
+
+diff --git a/drivers/thunderbolt/pci.c b/drivers/thunderbolt/pci.c
+index bbd186c..4b67418 100644
+--- a/drivers/thunderbolt/pci.c
++++ b/drivers/thunderbolt/pci.c
+@@ -6,6 +6,7 @@
+  * Copyright (C) 2018, Intel Corporation
+  */
+ 
++#include <linux/acpi.h>
+ #include <linux/pm_runtime.h>
+ #include <linux/slab.h>
+ #include <linux/errno.h>
+@@ -18,6 +19,7 @@
+ #include <linux/property.h>
+ #include <linux/string_helpers.h>
+ #include <linux/suspend.h>
++#include <linux/platform_data/x86/apple.h>
+ 
+ #include "nhi.h"
+ #include "nhi_regs.h"
+@@ -261,6 +263,99 @@ static const struct tb_nhi_ops pci_nhi_default_ops = {
+ 	.init_interrupts = nhi_pci_init_msi,
+ };
+ 
++/*
++ * Apple Titan Ridge specific NHI operations
++ *
++ * On Macs the firmware only removes power from the Titan Ridge
++ * controller when the OS has released the router through the RTPC
++ * method of the NHI. Until then the D3 methods of the controller ports
++ * keep the rails on, so the PEG root port and its PHY never power down.
++ * Release the router while the NHI is runtime suspended. The power-up
++ * itself happens in the _PS0 methods of the ports, which turn the rails
++ * on regardless of the release.
++ *
++ * While the controller is off, the firmware reports a hotplug event as a
++ * Bus Check notification on the NHI.
++ */
++static void apple_nhi_rtpc(struct tb_nhi *nhi, bool on)
++{
++	acpi_status status;
++
++	status = acpi_execute_simple_method(ACPI_HANDLE(nhi->dev), "RTPC", on);
++	if (ACPI_FAILURE(status))
++		dev_warn(nhi->dev, "failed to evaluate RTPC(%d): %s\n", on,
++			 acpi_format_exception(status));
++}
++
++static int apple_nhi_runtime_suspend(struct tb_nhi *nhi)
++{
++	apple_nhi_rtpc(nhi, false);
++	return 0;
++}
++
++static int apple_nhi_runtime_resume(struct tb_nhi *nhi)
++{
++	apple_nhi_rtpc(nhi, true);
++	return 0;
++}
++
++static void apple_nhi_notify(acpi_handle handle, u32 event, void *data)
++{
++	struct tb_nhi *nhi = data;
++
++	if (event == ACPI_NOTIFY_BUS_CHECK)
++		pm_request_resume(nhi->dev);
++}
++
++static void apple_nhi_remove_notify(void *data)
++{
++	struct tb_nhi *nhi = data;
++
++	acpi_remove_notify_handler(ACPI_HANDLE(nhi->dev), ACPI_SYSTEM_NOTIFY,
++				   apple_nhi_notify);
++}
++
++static int apple_nhi_init(struct tb_nhi *nhi)
++{
++	acpi_status status;
++
++	status = acpi_install_notify_handler(ACPI_HANDLE(nhi->dev),
++					     ACPI_SYSTEM_NOTIFY,
++					     apple_nhi_notify, nhi);
++	if (ACPI_FAILURE(status)) {
++		dev_warn(nhi->dev, "cannot install ACPI notify handler: %s\n",
++			 acpi_format_exception(status));
++		return 0;
++	}
++
++	return devm_add_action_or_reset(nhi->dev, apple_nhi_remove_notify, nhi);
++}
++
++static const struct tb_nhi_ops apple_nhi_ops = {
++	.init = apple_nhi_init,
++	.runtime_suspend = apple_nhi_runtime_suspend,
++	.runtime_resume = apple_nhi_runtime_resume,
++	.pre_nvm_auth = nhi_pci_start_dma_port,
++	.post_nvm_auth = nhi_pci_complete_dma_port,
++	.request_ring_irq = nhi_pci_ring_request_msix,
++	.release_ring_irq = nhi_pci_ring_release_msix,
++	.shutdown = nhi_pci_shutdown,
++	.is_present = nhi_pci_is_present,
++	.init_interrupts = nhi_pci_init_msi,
++};
++
++static bool nhi_pci_is_apple_titan_ridge(struct pci_dev *pdev)
++{
++	if (!x86_apple_machine)
++		return false;
++
++	if (pdev->device != PCI_DEVICE_ID_INTEL_TITAN_RIDGE_2C_NHI &&
++	    pdev->device != PCI_DEVICE_ID_INTEL_TITAN_RIDGE_4C_NHI)
++		return false;
++
++	return acpi_has_method(ACPI_HANDLE(&pdev->dev), "RTPC");
++}
++
+ /* Ice Lake specific NHI operations */
+ 
+ #define ICL_LC_MAILBOX_TIMEOUT	500 /* ms */
+@@ -465,6 +560,8 @@ static int nhi_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ 	nhi = &nhi_pci->nhi;
+ 	nhi->dev = dev;
+ 	nhi->ops = (const struct tb_nhi_ops *)id->driver_data ?: &pci_nhi_default_ops;
++	if (nhi_pci_is_apple_titan_ridge(pdev))
++		nhi->ops = &apple_nhi_ops;
+ 
+ 	nhi->iobase = pcim_iomap_region(pdev, 0, "thunderbolt");
+ 	res = PTR_ERR_OR_ZERO(nhi->iobase);
+-- 
+2.55.0
+

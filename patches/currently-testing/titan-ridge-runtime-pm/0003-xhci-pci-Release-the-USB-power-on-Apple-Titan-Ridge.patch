@@ -1,0 +1,146 @@
+From a61305f3cd0cdf83733dc4435deff57bb5802f1c Mon Sep 17 00:00:00 2001
+From: Andre Eikmeyer <dev@deq.rocks>
+Date: Sun, 4 Oct 2026 15:51:47 +0200
+Subject: [PATCH 3/3] xhci-pci: Release the USB power on Apple Titan Ridge
+
+On Macs the Titan Ridge xHCI exposes an RTPC method that releases the
+USB part of the controller. The firmware only turns the USB rail off,
+and with both parts released also powers down the PEG root port of the
+controller, after the OS has called it. Linux never does, so the
+controller stays powered while the xHCI is suspended.
+
+Release the controller through RTPC after a successful suspend and
+request it again before resume. While the rail is off, the firmware
+reports a hotplug event with a Bus Check notification on the controller
+(UMPE from the Thunderbolt hotplug GPE handlers). Resume the controller
+on that notification so the hub driver can see the new device.
+
+Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
+---
+ drivers/usb/host/xhci-pci.c | 75 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 75 insertions(+)
+
+diff --git a/drivers/usb/host/xhci-pci.c b/drivers/usb/host/xhci-pci.c
+index 6b3fcba..4156048 100644
+--- a/drivers/usb/host/xhci-pci.c
++++ b/drivers/usb/host/xhci-pci.c
+@@ -14,6 +14,7 @@
+ #include <linux/acpi.h>
+ #include <linux/reset.h>
+ #include <linux/suspend.h>
++#include <linux/platform_data/x86/apple.h>
+ 
+ #include "xhci.h"
+ #include "xhci-trace.h"
+@@ -609,6 +610,71 @@ static int xhci_pci_update_hub_device(struct usb_hcd *hcd, struct usb_device *hd
+  * We need to register our own PCI probe function (instead of the USB core's
+  * function) in order to create a second roothub under xHCI.
+  */
++/*
++ * On Macs the firmware only removes power from the Titan Ridge xHCI when
++ * the OS has released it through the RTPC method of the controller.
++ * Until then the D3 methods of the Thunderbolt controller ports keep the
++ * USB rail on, and with it the PEG root port of the controller. While
++ * the rail is off, the firmware reports a hotplug event as a Bus Check
++ * notification on the controller.
++ */
++static bool xhci_pci_is_apple_titan_ridge(struct pci_dev *pdev)
++{
++	if (!x86_apple_machine || pdev->vendor != PCI_VENDOR_ID_INTEL)
++		return false;
++
++	if (pdev->device != PCI_DEVICE_ID_INTEL_TITAN_RIDGE_2C_XHCI &&
++	    pdev->device != PCI_DEVICE_ID_INTEL_TITAN_RIDGE_4C_XHCI &&
++	    pdev->device != PCI_DEVICE_ID_INTEL_TITAN_RIDGE_DD_XHCI)
++		return false;
++
++	return acpi_has_method(ACPI_HANDLE(&pdev->dev), "RTPC");
++}
++
++static void xhci_pci_apple_rtpc(struct pci_dev *pdev, bool on)
++{
++	acpi_status status;
++
++	if (!xhci_pci_is_apple_titan_ridge(pdev))
++		return;
++
++	status = acpi_execute_simple_method(ACPI_HANDLE(&pdev->dev), "RTPC", on);
++	if (ACPI_FAILURE(status))
++		dev_warn(&pdev->dev, "failed to evaluate RTPC(%d): %s\n", on,
++			 acpi_format_exception(status));
++}
++
++static void xhci_pci_apple_notify(acpi_handle handle, u32 event, void *data)
++{
++	struct pci_dev *pdev = data;
++
++	if (event == ACPI_NOTIFY_BUS_CHECK)
++		pm_request_resume(&pdev->dev);
++}
++
++static void xhci_pci_apple_install_notify(struct pci_dev *pdev)
++{
++	acpi_status status;
++
++	if (!xhci_pci_is_apple_titan_ridge(pdev))
++		return;
++
++	status = acpi_install_notify_handler(ACPI_HANDLE(&pdev->dev),
++					     ACPI_SYSTEM_NOTIFY,
++					     xhci_pci_apple_notify, pdev);
++	if (ACPI_FAILURE(status))
++		dev_warn(&pdev->dev, "cannot install ACPI notify handler: %s\n",
++			 acpi_format_exception(status));
++}
++
++static void xhci_pci_apple_remove_notify(struct pci_dev *pdev)
++{
++	if (xhci_pci_is_apple_titan_ridge(pdev))
++		acpi_remove_notify_handler(ACPI_HANDLE(&pdev->dev),
++					   ACPI_SYSTEM_NOTIFY,
++					   xhci_pci_apple_notify);
++}
++
+ int xhci_pci_common_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ {
+ 	int retval;
+@@ -678,6 +744,8 @@ int xhci_pci_common_probe(struct pci_dev *dev, const struct pci_device_id *id)
+ 	if (device_property_read_bool(&dev->dev, "ti,pwron-active-high"))
+ 		pci_clear_and_set_config_dword(dev, 0xE0, 0, 1 << 22);
+ 
++	xhci_pci_apple_install_notify(dev);
++
+ 	return 0;
+ 
+ put_usb3_hcd:
+@@ -722,6 +790,8 @@ void xhci_pci_remove(struct pci_dev *dev)
+ 	struct xhci_hcd *xhci;
+ 	bool set_power_d3;
+ 
++	xhci_pci_apple_remove_notify(dev);
++
+ 	xhci = hcd_to_xhci(pci_get_drvdata(dev));
+ 	set_power_d3 = xhci->quirks & XHCI_SPURIOUS_WAKEUP;
+ 
+@@ -846,6 +916,9 @@ static int xhci_pci_suspend(struct usb_hcd *hcd, bool do_wakeup)
+ 	if (ret && (xhci->quirks & XHCI_SSIC_PORT_UNUSED))
+ 		xhci_ssic_port_unused_quirk(hcd, false);
+ 
++	if (!ret)
++		xhci_pci_apple_rtpc(pdev, false);
++
+ 	return ret;
+ }
+ 
+@@ -856,6 +929,8 @@ static int xhci_pci_resume(struct usb_hcd *hcd, pm_message_t msg)
+ 	bool power_lost = msg.event == PM_EVENT_RESTORE;
+ 	bool is_auto_resume = msg.event == PM_EVENT_AUTO_RESUME;
+ 
++	xhci_pci_apple_rtpc(pdev, true);
++
+ 	reset_control_reset(xhci->reset);
+ 
+ 	/* The BIOS on systems with the Intel Panther Point chipset may or may
+-- 
+2.55.0
+
