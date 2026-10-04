@@ -19,4 +19,5 @@ if [[ -d "$APP_DIR/target" ]]; then
 fi
 runuser -u "$target_user" -- make -C "$APP_DIR" build
 make -C "$APP_DIR" install
+clean_cargo_build "$APP_DIR" "$target_user"
 info "t2-power-explorer installed"

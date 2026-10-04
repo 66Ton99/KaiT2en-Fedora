@@ -53,5 +53,6 @@ target_user="${SUDO_USER:-}"
 info "building and installing t2-hybrid-gpu-control"
 sudo -H -u "$target_user" make -C "$APP_DIR" build
 make -C "$APP_DIR" install
+clean_cargo_build "$APP_DIR" "$target_user"
 
 info "t2-hybrid-gpu-control installed"

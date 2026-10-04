@@ -91,6 +91,16 @@ warn() {
 		printf '[kait2en] error: cannot write warning report\n' >&2
 }
 
+clean_cargo_build() {
+	local path=$1 target_user=$2
+	if [[ "${KAIT2EN_CARGO_CLEAN:-1}" == 0 ]]; then
+		return 0
+	fi
+	if ! sudo -H -u "$target_user" make -C "$path" clean; then
+		warn "could not remove Cargo build artifacts below $path"
+	fi
+}
+
 fail() {
 	record_error "$*"
 	exit 1
