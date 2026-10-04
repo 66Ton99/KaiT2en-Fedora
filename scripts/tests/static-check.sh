@@ -106,7 +106,8 @@ grep -Fq 'device_access_ready' apps/t2-touchbar/install.sh
 # ISOs up to v0.1.12 delegate to the old installer path.
 grep -Fq 'auto-installer/runtime' packaging/installer/runtime/kait2en-install
 grep -Fq '"$BIN" --detach' apps/t2-touchbar/uninstall.sh
-grep -Fq 'make -C "$APP_DIR" clean' apps/t2-touchbar/install.sh
+grep -Fq 'clean_cargo_build "$APP_DIR"' apps/t2-touchbar/install.sh
+grep -Fq 'make -C "$path" clean' scripts/fedora/lib.sh
 grep -Fq 'device_group_is_live' apps/t2-touchbar/install.sh
 grep -Fq 'kait2en-touchbar --attach' \
 	apps/t2-touchbar/integration/systemd/system/kait2en-touchbar-attach.service
