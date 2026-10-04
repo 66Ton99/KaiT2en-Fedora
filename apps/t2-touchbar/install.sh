@@ -44,6 +44,12 @@ user_manager_is_running() {
 	systemctl is-active --quiet "user@$target_uid.service"
 }
 
+# The daemon can open the panel once its user manager carries the device
+# group: either a manager that already has it, or one that starts later.
+device_access_ready() {
+	! user_manager_is_running || device_group_is_live
+}
+
 clean_build() {
 	if ! sudo -H -u "$target_user" make -C "$APP_DIR" clean; then
 		warn "could not remove Cargo build artifacts below $APP_DIR"
@@ -89,8 +95,18 @@ configure_system() {
 	systemctl enable kait2en-touchbar-attach.service
 	udevadm control --reload
 	udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac --attr-match=idProduct=8102 --action=add
-	udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac --attr-match=idProduct=8302 --action=add
-	systemctl restart kait2en-touchbar-attach.service
+	if device_access_ready; then
+		udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac --attr-match=idProduct=8302 --action=add
+		# Freshly built modules may only load after a reboot; the attach
+		# helper then falls back to the firmware row by itself.
+		systemctl restart kait2en-touchbar-attach.service ||
+			warn "the Touch Bar display is not ready yet; it switches over after the next reboot"
+	else
+		# First install: the running session cannot open the panel before the
+		# reboot, so keep Apple's firmware row instead of switching the panel
+		# away and back. The enabled attach service switches it at boot.
+		info "keeping the firmware Touch Bar until the next reboot"
+	fi
 	udevadm settle
 	udevadm trigger --subsystem-match=drm --action=add
 	udevadm trigger --subsystem-match=input --action=add
@@ -106,10 +122,11 @@ activate_user_service() {
 	elif ! device_group_is_live; then
 		# A logout does not necessarily restart user@UID.service. Never leave the
 		# panel in DRM configuration 2 while that manager still lacks access.
+		# Like react-drm did: only enable it. configure_system left the panel
+		# on the firmware row, so there is nothing to switch back here.
 		if [[ -S "/run/user/$target_uid/bus" ]]; then
 			user_systemctl stop kait2en-touchbar.service || true
 		fi
-		/usr/local/bin/kait2en-touchbar --detach
 		warn "reboot once so kait2en-touchbar receives its device-access group; the firmware Touch Bar remains available until then"
 	elif [[ -S "/run/user/$target_uid/bus" ]] &&
 		user_systemctl is-active --quiet graphical-session.target; then

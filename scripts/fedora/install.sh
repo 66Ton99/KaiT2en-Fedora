@@ -12,6 +12,10 @@ require_min_kernel 7 0
 # the previous default (install) is kept.
 ask_touchbar() {
 	local answer
+	if ! has_touch_bar; then
+		KAIT2EN_INSTALL_TOUCHBAR=0
+		return
+	fi
 	case "${KAIT2EN_INSTALL_TOUCHBAR:-}" in
 		1 | 0) return ;;
 	esac

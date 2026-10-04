@@ -22,6 +22,7 @@ shell_files=(
 	auto-installer/runtime/kait2en-prepare
 	apps/t2-touchbar/install.sh
 	apps/t2-touchbar/uninstall.sh
+	packaging/installer/runtime/kait2en-install
 	scripts/fedora/build-installer.sh
 	scripts/fedora/install-gdm-branding.sh
 	scripts/fedora/install-dkms-modules.sh
@@ -97,10 +98,16 @@ grep -Fq 'apps/t2-touchbar/install.sh' scripts/fedora/install-apps.sh
 # The Touch Bar daemon is optional and asked for before any step runs.
 grep -Fq 'KAIT2EN_INSTALL_TOUCHBAR' scripts/fedora/install-apps.sh
 grep -Fq 'ask_touchbar' scripts/fedora/install.sh
+# Only models with a Touch Bar are asked, and the first install must not
+# switch the panel before the session can open it.
+grep -Fq 'has_touch_bar' scripts/fedora/install.sh
+grep -Fq 'has_touch_bar' scripts/fedora/install-apps.sh
+grep -Fq 'device_access_ready' apps/t2-touchbar/install.sh
+# ISOs up to v0.1.12 delegate to the old installer path.
+grep -Fq 'auto-installer/runtime' packaging/installer/runtime/kait2en-install
 grep -Fq '"$BIN" --detach' apps/t2-touchbar/uninstall.sh
 grep -Fq 'make -C "$APP_DIR" clean' apps/t2-touchbar/install.sh
 grep -Fq 'device_group_is_live' apps/t2-touchbar/install.sh
-grep -Fq 'kait2en-touchbar --detach' apps/t2-touchbar/install.sh
 grep -Fq 'kait2en-touchbar --attach' \
 	apps/t2-touchbar/integration/systemd/system/kait2en-touchbar-attach.service
 grep -Fq 't2-kernel-builder bundle is incomplete' \

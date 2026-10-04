@@ -115,7 +115,9 @@ run_step "t2-fan-control" install_rust_app "$REPO_ROOT/apps/t2-fan-control" "t2-
 run_step "t2-smc-control" install_rust_app "$REPO_ROOT/apps/t2-smc-control" "t2-smc-control"
 run_step "t2-power-explorer" install_rust_app "$REPO_ROOT/apps/t2-power-explorer" "t2-power-explorer"
 run_step "t2-force-click" install_rust_app "$REPO_ROOT/apps/t2-force-click" "t2-force-click"
-if [[ "${KAIT2EN_INSTALL_TOUCHBAR:-1}" == 1 ]]; then
+if ! has_touch_bar; then
+	info "no Touch Bar on this model; skipping kait2en-touchbar"
+elif [[ "${KAIT2EN_INSTALL_TOUCHBAR:-1}" == 1 ]]; then
 	run_step "kait2en-touchbar" "$REPO_ROOT/apps/t2-touchbar/install.sh"
 elif [[ -x /usr/local/bin/kait2en-touchbar ]]; then
 	info "kait2en-touchbar not selected; the existing installation is left unchanged"

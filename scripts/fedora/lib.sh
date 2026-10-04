@@ -113,6 +113,15 @@ require_fedora() {
 		fail "this script is Fedora-only"
 }
 
+# Every T2 MacBook Pro has a Touch Bar; the MacBook Air, Mac mini, iMac and
+# Mac Pro models do not.
+has_touch_bar() {
+	local model
+	[[ -r /sys/class/dmi/id/product_name ]] || return 1
+	read -r model </sys/class/dmi/id/product_name
+	[[ "$model" == MacBookPro15,* || "$model" == MacBookPro16,* ]]
+}
+
 require_command() {
 	local cmd
 	for cmd in "$@"; do
