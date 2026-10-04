@@ -85,44 +85,21 @@ three-finger click already produces a middle click directly from the trackpad,
 so it does not need a Force Click binding. Commands run as the active desktop
 user.
 
-## KAIT2EN Touch Bar
+## T2 Touch Bar
 
-Optional. The installer asks at the very beginning whether to install it.
-Without it, Apple's native firmware row (esc, brightness, volume and media
-keys, F-keys while Fn is held) keeps working. Remove it again with
-`sudo ./apps/t2-touchbar/uninstall.sh`. That restores the native row and keeps
-personal settings and learned state.
+Optional. The installer only asks on models with a Touch Bar. Without it,
+Apple's native Touch Bar keeps working.
 
-Keeps the Touch Bar black until it is touched or Fn is pressed. The waking
-touch is consumed, preventing accidental activation of an invisible key. A
-short Fn press opens the remembered media or function-key row; holding Fn for
-600 milliseconds, or swiping across the lit bar with two fingers, switches that
-remembered row. Swiping with two fingers across the dark bar changes the volume
-without waking it.
+Keeps the Touch Bar dark until it is touched or Fn is pressed and offers a
+media row and an F-key row. Two-finger swipes change the volume on the dark bar
+and switch between F-keys and media keys on the lit one. Three fingers change
+the display brightness. Touch ID shows an "Unlock with Touch ID" prompt, and 
+new tracks from media players briefly appear on the dark bar.
+Reboot once after the first install.
 
-The initial five-second timeout is learned independently for both rows. It can
-grow to thirty seconds after a quick wake-and-use continuation, and shrinks
-slowly when the extra time repeatedly goes unused. Touch ID always replaces
-the row with the fingerprint prompt during sudo and lock-screen
-authentication. Accepted key presses produce a light impulse through the
-trackpad actuator.
-
-While dark, the separate `05ac:8102` brightness controller may runtime-suspend.
-The `05ac:8302` display/touch device deliberately remains awake so the
-first touch can still wake the row.
-
-The installer switches that device from Apple's firmware row to the DRM
-display through a root system service. Reboot once after the first install so
-the desktop's user-systemd manager receives the new device-access group; a
-logout alone may leave that manager running. Until then, the installer falls
-back to the firmware row instead of leaving a black panel.
-
-Use `kait2en-touchbar --status` to inspect learned state and
-`kait2en-touchbar --reset-learning` to return it to five seconds. System
-defaults are in `/etc/kait2en/touchbar.toml`; a user can override the complete
-file at `$XDG_CONFIG_HOME/kait2en-touchbar/config.toml`. `key_color` sets the
-glyph color as `#rrggbb`; the default cool white matches the keyboard
-backlight.
+Settings are in `/etc/kait2en/touchbar.toml`. To return to the native Touch
+Bar, run `sudo systemctl --global disable kait2en-touchbar.service` and
+reboot, or remove it with `sudo ./apps/t2-touchbar/uninstall.sh`.
 
 ## T2 GPU Control
 

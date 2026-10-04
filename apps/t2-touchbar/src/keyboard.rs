@@ -52,7 +52,7 @@ impl VirtualKeyboard {
             handle.set_keybit(key)?;
         }
         let mut name = [0 as c_char; 80];
-        for (target, byte) in name.iter_mut().zip(b"KAIT2EN Touch Bar".iter().copied()) {
+        for (target, byte) in name.iter_mut().zip(b"T2 Touch Bar".iter().copied()) {
             *target = byte as c_char;
         }
         handle.dev_setup(&uinput_setup {

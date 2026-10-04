@@ -1,6 +1,6 @@
-# KAIT2EN Touch Bar
+# T2 Touch Bar
 
-kait2en-touchbar replaces Apple's built-in Touch Bar row with its own
+T2 Touch Bar replaces Apple's built-in Touch Bar row with its own
 dark-first display. The bar stays black until you touch it or press Fn,
 learns how long to stay lit, offers a media row and an F-key row (hold Fn
 to switch), shows a Touch ID prompt and gives haptic
