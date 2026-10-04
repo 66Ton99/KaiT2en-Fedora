@@ -5,7 +5,7 @@
 # Optional: authors, link, help, notes, project, subsystem, version
 #
 # state:    in-progress | planned | available    — what a user gets today
-# upstream: downstream | preparing | submitted | merged | revoked | rejected | stale
+# upstream: downstream | preparing | submitted | merged | superseded | revoked | rejected | stale
 #
 #
 # `link` makes both the title and the upstream label clickable. It is either an
@@ -23,18 +23,20 @@ items:
   - id: brcmfmac-bcm4377-d3-ack
     title: "Wi-Fi suspend on BCM4377 T2 Macs"
     state: available
-    upstream: submitted
+    upstream: superseded
     version: v2
     project: Linux kernel
     subsystem: Wi-Fi / brcmfmac
     authors:
       - deqrocks
     link: "https://lore.kernel.org/all/20261001085308.1688049-1-dev@deq.rocks/"
-    updated: "2026-10-01"
+    updated: "2026-10-04"
     notes: >-
-      Lets affected T2 Macs suspend when BCM4377 firmware does not acknowledge
-      HOST_D3_INFORM, then uses the driver's cold-reprobe recovery path on
-      resume.
+      The downstream systemd suspend service handles BCM4377 today. Our v2
+      kernel patch was superseded by Sebastian Reichel's accepted generic
+      brcmfmac fix, which ignores a missing D3 ACK when Wake-on-WLAN is not
+      armed and uses the cold-reprobe recovery path on resume:
+      https://lore.kernel.org/linux-wireless/20260915-brcmfmac-bcm43752-suspend-fix-v2-1-1bd84914998b@collabora.com/
 
   - id: brcmfmac-pm-max-power-management
     title: "Wi-Fi PM_MAX power management"

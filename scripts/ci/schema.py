@@ -18,13 +18,23 @@ STATE_LABELS = {
 }
 
 # What happens to it upstream.
-UPSTREAM = ("downstream", "preparing", "submitted", "merged", "revoked", "rejected", "stale")
+UPSTREAM = (
+    "downstream",
+    "preparing",
+    "submitted",
+    "merged",
+    "superseded",
+    "revoked",
+    "rejected",
+    "stale",
+)
 
 UPSTREAM_LABELS = {
     "downstream": "Downstream only",
     "preparing": "Preparing",
     "submitted": "Submitted",
     "merged": "Merged",
+    "superseded": "Superseded",
     "revoked": "Withdrawn",
     "rejected": "Rejected",
     "stale": "Stale",
@@ -32,7 +42,7 @@ UPSTREAM_LABELS = {
 
 # Something was submitted, so it needs a link and an author, and it is what the
 # Discord channel announces.
-SUBMITTED_UPSTREAM = ("submitted", "merged", "revoked", "rejected", "stale")
+SUBMITTED_UPSTREAM = ("submitted", "merged", "superseded", "revoked", "rejected", "stale")
 
 REQUIRED_FIELDS = ("id", "title", "state", "upstream", "updated")
 OPTIONAL_FIELDS = ("authors", "link", "help", "notes", "project", "subsystem", "version")

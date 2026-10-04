@@ -12,6 +12,7 @@ UPSTREAM_EMOJI = {
     "preparing": "🛠",
     "submitted": "🔵",
     "merged": "🟢",
+    "superseded": "⏭",
     "revoked": "↻",
     "rejected": "🔴",
     "stale": "⚪",
