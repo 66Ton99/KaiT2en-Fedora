@@ -3,6 +3,10 @@ Description=Attach the Apple T2 Touch Bar display interface
 
 [Service]
 Type=oneshot
+# Only switch away from Apple's firmware row when the daemon will run. After
+# "systemctl --global disable kait2en-touchbar.service" the next boot keeps
+# the native Touch Bar instead of a black panel.
+ExecCondition=/usr/bin/systemctl --global is-enabled --quiet kait2en-touchbar.service
 ExecStart=/usr/local/bin/kait2en-touchbar --attach
 TimeoutStartSec=60
 Restart=on-failure

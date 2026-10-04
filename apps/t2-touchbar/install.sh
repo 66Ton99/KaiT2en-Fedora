@@ -92,6 +92,9 @@ configure_system() {
 	fi
 
 	systemctl daemon-reload
+	# The attach service only switches the panel while the daemon is enabled,
+	# so enable the daemon first.
+	systemctl --global enable kait2en-touchbar.service
 	systemctl enable kait2en-touchbar-attach.service
 	udevadm control --reload
 	udevadm trigger --subsystem-match=usb --attr-match=idVendor=05ac --attr-match=idProduct=8102 --action=add
@@ -113,7 +116,6 @@ configure_system() {
 	udevadm trigger --subsystem-match=backlight --action=add
 	udevadm trigger --subsystem-match=hid --action=add
 	udevadm trigger --subsystem-match=misc --action=add
-	systemctl --global enable kait2en-touchbar.service
 }
 
 activate_user_service() {

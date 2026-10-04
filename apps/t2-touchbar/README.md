@@ -58,6 +58,16 @@ the invoking user, installs the global user unit, and replaces conflicting
 Touch Bar daemons. A reboot is required after the first
 group assignment.
 
+To go back to Apple's native Touch Bar without uninstalling, disable the
+daemon and reboot:
+
+```sh
+sudo systemctl --global disable kait2en-touchbar.service
+```
+
+The attach service then leaves the firmware row in place at boot. Enable it
+again with `sudo systemctl --global enable kait2en-touchbar.service`.
+
 State is stored at `$XDG_STATE_HOME/kait2en-touchbar/state.toml`. Inspect or
 reset it with:
 
