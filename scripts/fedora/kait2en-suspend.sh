@@ -99,8 +99,6 @@ has_bcm4377() {
 pre_suspend() {
 	local status
 
-	sync_rtc
-
 	if ! mkdir -p "$STATE_DIR"; then
 		log "could not create state directory $STATE_DIR; skipping suspend fixes"
 		return 0
@@ -131,17 +129,7 @@ pre_suspend() {
 	return 0
 }
 
-# The kernel never writes the t2smc RTC on x86. Like macOS, synchronize it
-# before sleep so the T2 keeps the right time while the host is suspended, and
-# again on resume. t2smc only writes CLKO when the offset has drifted.
-sync_rtc() {
-	if ! hwclock --systohc --utc; then
-		log "could not write system time to the RTC"
-	fi
-}
-
 post_resume() {
-	sync_rtc
 	restore_unloaded_modules
 	return 0
 }

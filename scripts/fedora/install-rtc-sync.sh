@@ -8,8 +8,8 @@ require_fedora
 require_command systemctl hwclock chronyc
 
 # The kernel's NTP RTC sync never writes t2smc on x86 (it stops at the legacy
-# CMOS clock), so write it ourselves. After chrony syncs at boot, and at
-# shutdown so the next boot starts from a correct RTC.
+# CMOS clock), so write it once chrony has synchronized at boot. t2smc itself
+# synchronizes the RTC before suspend and at shutdown.
 info "installing Kait2en SMC RTC sync"
 tee /etc/systemd/system/kait2en-rtc-sync.service >/dev/null <<'EOF'
 [Unit]
@@ -20,7 +20,6 @@ After=chronyd.service
 Type=exec
 RemainAfterExit=yes
 ExecStart=/bin/sh -c 'chronyc waitsync 180 && hwclock --systohc --utc'
-ExecStop=/usr/bin/hwclock --systohc --utc
 
 [Install]
 WantedBy=multi-user.target
