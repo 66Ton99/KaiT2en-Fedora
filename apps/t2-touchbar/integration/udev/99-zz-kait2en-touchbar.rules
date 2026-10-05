@@ -35,4 +35,4 @@ SUBSYSTEM=="misc", KERNEL=="uinput", GROUP="kait2en-touchbar", MODE="0660"
 
 # The module parameter intentionally accepts only the captured light/firm
 # presets, never arbitrary actuator reports.
-ACTION=="add", SUBSYSTEM=="hid", DRIVERS=="t2_trackpad_actuator", RUN+="/bin/chgrp kait2en-touchbar /sys/module/t2_trackpad_actuator/parameters/play", RUN+="/bin/chmod g+w /sys/module/t2_trackpad_actuator/parameters/play"
+ACTION=="add|change", SUBSYSTEM=="hid", DRIVERS=="t2_trackpad_actuator", RUN+="/bin/chgrp kait2en-touchbar /sys/module/t2_trackpad_actuator/parameters/play", RUN+="/bin/chmod g+w /sys/module/t2_trackpad_actuator/parameters/play"
