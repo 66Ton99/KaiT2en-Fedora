@@ -72,6 +72,11 @@ struct apple_gmux_data {
 	acpi_handle dhandle;
 	int gpe;
 	bool gpe_enabled;
+	/*
+	 * Serializes complete power transitions including the wait for the gmux
+	 * power interrupt, like the AGC command gate that sleeps on it.
+	 */
+	struct mutex transition_lock;
 	/* Serializes power sequences and interrupt handling like the AGC workloop. */
 	struct mutex power_lock;
 	struct work_struct interrupt_work;
@@ -834,14 +839,16 @@ static void gmux_dump_power(struct apple_gmux_data *gmux_data,
 			 when, power, gpu, status, enable);
 }
 
-static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
-				   enum vga_switcheroo_state state)
+static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+				     enum vga_switcheroo_state state)
 {
 	struct gmux_cfg_locks cfg_locks = { .count = 0 };
 	int ret = 0;
 
-	reinit_completion(&gmux_data->powerchange_done);
+	lockdep_assert_held(&gmux_data->transition_lock);
+
 	mutex_lock(&gmux_data->power_lock);
+	reinit_completion(&gmux_data->powerchange_done);
 
 	if (state == VGA_SWITCHEROO_ON) {
 		if (gmux_data->use_pwrd_power_sequence &&
@@ -961,6 +968,17 @@ static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 out_unlock:
 	gmux_unlock_dgpu_cfg(&cfg_locks);
 	mutex_unlock(&gmux_data->power_lock);
+	return ret;
+}
+
+static int gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
+				   enum vga_switcheroo_state state)
+{
+	int ret;
+
+	mutex_lock(&gmux_data->transition_lock);
+	ret = __gmux_set_discrete_state(gmux_data, state);
+	mutex_unlock(&gmux_data->transition_lock);
 	return ret;
 }
 
@@ -1306,9 +1324,11 @@ static int gmux_resume(struct device *dev)
 	gmux_start_interrupts(gmux_data);
 	gmux_write_switch_state(gmux_data);
 	/* Like AppleMuxControl2, only power down a dGPU that came back powered. */
+	mutex_lock(&gmux_data->transition_lock);
 	if (gmux_data->power_state == VGA_SWITCHEROO_OFF &&
 	    (gmux_read8(gmux_data, GMUX_PORT_DISCRETE_POWER) & 3) == 3)
-		gmux_set_discrete_state(gmux_data, gmux_data->power_state);
+		__gmux_set_discrete_state(gmux_data, VGA_SWITCHEROO_OFF);
+	mutex_unlock(&gmux_data->transition_lock);
 	return 0;
 }
 
@@ -1452,6 +1472,7 @@ get_version:
 	}
 
 	init_completion(&gmux_data->powerchange_done);
+	mutex_init(&gmux_data->transition_lock);
 	mutex_init(&gmux_data->power_lock);
 	INIT_WORK(&gmux_data->interrupt_work, gmux_interrupt_work);
 	gmux_disable_interrupts(gmux_data);
