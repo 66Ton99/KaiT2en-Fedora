@@ -1504,11 +1504,19 @@ static int t2smc_rtc_set_time(struct device *dev, struct rtc_time *tm)
 		return ret;
 
 	off = rtc_tm_to_time64(tm) * (s64)t2->rtc_rate - (s64)ctr;
+	off = sign_extend64((u64)off & T2SMC_RTC_MASK, T2SMC_RTC_BITS - 1);
+
+	/*
+	 * Like AppleSMCRTC, only write CLKO when the offset changed. The
+	 * time comes in whole seconds and the counter keeps running until
+	 * it is latched, so tolerate a quarter second.
+	 */
+	if (abs(off - READ_ONCE(t2->rtc_offset)) < t2->rtc_rate / 4)
+		return 0;
+
 	ret = t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, (u64)off);
 	if (!ret)
-		WRITE_ONCE(t2->rtc_offset,
-			   sign_extend64((u64)off & T2SMC_RTC_MASK,
-					 T2SMC_RTC_BITS - 1));
+		WRITE_ONCE(t2->rtc_offset, off);
 	return ret;
 }
 

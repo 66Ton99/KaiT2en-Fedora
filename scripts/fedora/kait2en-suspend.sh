@@ -131,9 +131,9 @@ pre_suspend() {
 	return 0
 }
 
-# The kernel never writes the t2smc RTC on x86. Like macOS, write it before
-# sleep so the T2 keeps the right time while the host is suspended, and again
-# on resume so a long suspend-only session cannot leave it stale.
+# The kernel never writes the t2smc RTC on x86. Like macOS, synchronize it
+# before sleep so the T2 keeps the right time while the host is suspended, and
+# again on resume. t2smc only writes CLKO when the offset has drifted.
 sync_rtc() {
 	if ! hwclock --systohc --utc; then
 		log "could not write system time to the RTC"
