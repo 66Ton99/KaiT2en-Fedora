@@ -5,29 +5,28 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)/lib.sh"
 require_root
 require_repo_root
 require_fedora
-require_command systemctl sed grep chronyd
+require_command systemctl hwclock chronyc
 
-CHRONY_CONF="/etc/chrony.conf"
-BEGIN_MARK="# BEGIN Kait2en SMC RTC"
-END_MARK="# END Kait2en SMC RTC"
-
-# The kernel's NTP RTC sync (chrony rtcsync) never writes t2smc on x86, it
-# stops at the legacy CMOS clock. Let chrony set rtc0 itself instead. It only
-# trims the RTC while synchronized and tracks the SMC clock drift. t2smc itself
+# The kernel's NTP RTC sync never writes t2smc on x86 (it stops at the legacy
+# CMOS clock), so write it once chrony has synchronized at boot. t2smc itself
 # synchronizes the RTC before suspend and at shutdown.
-configure_chrony() {
-	[[ -f "$CHRONY_CONF" ]] || fail "$CHRONY_CONF not found"
-	sed -i 's/^rtcsync\b/#&/' "$CHRONY_CONF"
-	sed -i "/^$BEGIN_MARK\$/,/^$END_MARK\$/d" "$CHRONY_CONF"
-	cat >>"$CHRONY_CONF" <<EOF
-$BEGIN_MARK
-rtcdevice /dev/rtc0
-rtcfile /var/lib/chrony/rtc
-rtconutc
-rtcautotrim 30
-$END_MARK
-EOF
-	systemctl try-restart chronyd.service
-}
+info "installing Kait2en SMC RTC sync"
+tee /etc/systemd/system/kait2en-rtc-sync.service >/dev/null <<'EOF'
+[Unit]
+Description=Kait2en write system time to the T2 SMC RTC
+After=chronyd.service
 
-run_step "configure chrony to maintain the T2 SMC RTC" configure_chrony
+[Service]
+Type=exec
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'chronyc waitsync 180 && hwclock --systohc --utc'
+
+[Install]
+WantedBy=multi-user.target
+EOF
+chmod 0644 /etc/systemd/system/kait2en-rtc-sync.service
+
+systemctl daemon-reload
+systemctl enable kait2en-rtc-sync.service
+
+info "Kait2en SMC RTC sync installed"
