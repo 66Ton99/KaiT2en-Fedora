@@ -29,10 +29,10 @@ ACTION=="add", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="05
 
 # Only members of the dedicated group can alter Touch Bar illumination or
 # inject its whitelisted virtual key events.
-ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="t2tb_backlight", RUN+="/bin/chgrp kait2en-touchbar /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
-ACTION=="add", SUBSYSTEM=="backlight", KERNEL=="appletb_backlight", RUN+="/bin/chgrp kait2en-touchbar /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+ACTION=="add|change", SUBSYSTEM=="backlight", KERNEL=="t2tb_backlight", RUN+="/bin/chgrp kait2en-touchbar /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+ACTION=="add|change", SUBSYSTEM=="backlight", KERNEL=="appletb_backlight", RUN+="/bin/chgrp kait2en-touchbar /sys/class/backlight/%k/brightness", RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
 SUBSYSTEM=="misc", KERNEL=="uinput", GROUP="kait2en-touchbar", MODE="0660"
 
 # The module parameter intentionally accepts only the captured light/firm
 # presets, never arbitrary actuator reports.
-ACTION=="add", SUBSYSTEM=="hid", DRIVERS=="t2_trackpad_actuator", RUN+="/bin/chgrp kait2en-touchbar /sys/module/t2_trackpad_actuator/parameters/play", RUN+="/bin/chmod g+w /sys/module/t2_trackpad_actuator/parameters/play"
+ACTION=="add|change", SUBSYSTEM=="hid", DRIVERS=="t2_trackpad_actuator", RUN+="/bin/chgrp kait2en-touchbar /sys/module/t2_trackpad_actuator/parameters/play", RUN+="/bin/chmod g+w /sys/module/t2_trackpad_actuator/parameters/play"
