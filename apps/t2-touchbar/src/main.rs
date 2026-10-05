@@ -58,15 +58,16 @@ use touchid::TouchIdState;
 const ESC_LINGER_MS: u64 = 150;
 /// Swipe feedback stays a little after the fingers lift to show the result.
 const LEVEL_LINGER_MS: u64 = 700;
+const LEVEL_FADE_MS: u64 = 350;
+const LEVEL_FRAME_MS: u64 = 33;
 /// The desktop applies a volume or brightness key asynchronously, so the
 /// value is read back repeatedly for a short while after each step.
 const LEVEL_POLL_MS: u64 = 80;
 const LEVEL_POLL_WINDOW_MS: u64 = 600;
-/// Switching rows slides both rows this far while they crossfade, so the
-/// direction is clear without a long, fast travel across the whole bar.
-const LAYER_SLIDE_PX: f32 = 100.0;
-/// Switching rows takes this long, at about 50 fps.
-const LAYER_FADE_MS: u64 = 350;
+/// Switching rows move far enough to read as a swipe across the bar.
+const LAYER_SLIDE_PX: f32 = 190.0;
+/// Switching rows takes about a quarter less time than before.
+const LAYER_FADE_MS: u64 = 260;
 const LAYER_FRAME_MS: u64 = 20;
 /// Track overlay timeline: fade in, hold, fade out.
 const TRACK_FADE_MS: u64 = 700;
@@ -195,6 +196,8 @@ struct Runtime {
     /// The level feedback changed and is drawn once the pending input is
     /// processed, so a burst of touch events costs one frame.
     level_dirty: bool,
+    level_fade_start_ms: Option<u64>,
+    level_frame_ms: Option<u64>,
     /// Last values seen per kind, shown until a fresh read arrives.
     level_cache: [Level; 2],
     level_reader: LevelReader,
@@ -264,6 +267,8 @@ impl Runtime {
             level_poll_ms: None,
             level_poll_until_ms: 0,
             level_dirty: false,
+            level_fade_start_ms: None,
+            level_frame_ms: None,
             level_cache: [Level::default(); 2],
             level_reader,
             level_wake,
@@ -330,8 +335,7 @@ impl Runtime {
             );
         }
         fade.next_ms = now + LAYER_FRAME_MS;
-        let t = elapsed as f32 / LAYER_FADE_MS as f32;
-        let eased = t * t * (3.0 - 2.0 * t);
+        let progress = elapsed as f32 / LAYER_FADE_MS as f32;
         self.blended.resize(self.canvas.pixels.len(), 0);
         compose_slide(
             &fade.from,
@@ -340,7 +344,7 @@ impl Runtime {
             usize::from(self.canvas.width),
             fade.clip_left,
             fade.direction,
-            eased,
+            progress,
         );
         self.display
             .present(&self.blended, self.canvas.width, self.canvas.height)
@@ -650,6 +654,8 @@ impl Runtime {
     fn show_dark_esc(&mut self, index: usize) -> Result<()> {
         self.refresh_key_level();
         self.level_kind = None;
+        self.level_fade_start_ms = None;
+        self.level_frame_ms = None;
         self.toast = None;
         self.overlay_hide_ms = None;
         self.canvas.single_key(&self.layout, index);
@@ -660,6 +666,8 @@ impl Runtime {
         self.refresh_key_level();
         self.toast = None;
         self.level_kind = Some(kind);
+        self.level_fade_start_ms = None;
+        self.level_frame_ms = None;
         self.level = self.level_cache[cache_slot(kind)];
         self.level_reader.request(kind);
         self.level_fingers = self.swipe_span();
@@ -676,11 +684,17 @@ impl Runtime {
         let Some(kind) = self.level_kind.filter(|_| !self.visible) else {
             return Ok(());
         };
+        let opacity = self.level_fade_start_ms.map_or(100, |start| {
+            let elapsed = self.now_ms().saturating_sub(start).min(LEVEL_FADE_MS);
+            let opacity = 1.0 - elapsed as f32 / LEVEL_FADE_MS as f32;
+            (opacity * opacity * (3.0 - 2.0 * opacity) * 100.0).round() as u32
+        });
         self.canvas.level(
             kind,
             self.level.percent,
             self.level.muted,
             (self.level_fingers.0 as f32, self.level_fingers.1 as f32),
+            opacity,
         );
         self.present_overlay()
     }
@@ -701,6 +715,8 @@ impl Runtime {
         self.level_kind = None;
         self.toast = None;
         self.level_poll_ms = None;
+        self.level_fade_start_ms = None;
+        self.level_frame_ms = None;
         if !self.overlay_shown || self.visible {
             return Ok(());
         }
@@ -1179,7 +1195,27 @@ impl Runtime {
             self.poll_level(now);
         }
         if self.overlay_hide_ms.is_some_and(|deadline| now >= deadline) {
-            self.hide_overlay()?;
+            if self.level_kind.is_some() {
+                self.overlay_hide_ms = None;
+                self.level_fade_start_ms = Some(now);
+                self.level_frame_ms = Some(now + LEVEL_FRAME_MS);
+                self.level_dirty = true;
+                self.flush_level()?;
+            } else {
+                self.hide_overlay()?;
+            }
+        }
+        if self.level_frame_ms.is_some_and(|deadline| now >= deadline) {
+            if self
+                .level_fade_start_ms
+                .is_some_and(|start| now.saturating_sub(start) >= LEVEL_FADE_MS)
+            {
+                self.hide_overlay()?;
+            } else {
+                self.level_dirty = true;
+                self.flush_level()?;
+                self.level_frame_ms = Some(now + LEVEL_FRAME_MS);
+            }
         }
         if self
             .media_hold
@@ -1242,6 +1278,9 @@ impl Runtime {
         if let Some(deadline) = self.overlay_hide_ms {
             deadlines.push(deadline);
         }
+        if let Some(deadline) = self.level_frame_ms {
+            deadlines.push(deadline);
+        }
         deadlines
             .into_iter()
             .min()
@@ -1250,9 +1289,9 @@ impl Runtime {
     }
 }
 
-/// One frame of a row switch: the old row slides out by `LAYER_SLIDE_PX` in
-/// `direction` while the new one slides in from the other side, crossfading
-/// by `progress` (0..1). Columns left of `clip_left` show the new row as is.
+/// One frame of a row switch. The old row leaves before the new row fully
+/// appears, while both travel farther than a simple crossfade. Columns left
+/// of `clip_left` show the new row as is.
 fn compose_slide(
     from: &[u32],
     to: &[u32],
@@ -1262,9 +1301,12 @@ fn compose_slide(
     direction: i32,
     progress: f32,
 ) {
+    let progress = progress.clamp(0.0, 1.0);
     let shift_out = (direction as f32 * LAYER_SLIDE_PX * progress).round() as isize;
     let shift_in = (direction as f32 * LAYER_SLIDE_PX * (1.0 - progress)).round() as isize;
-    let mix = (progress * 256.0) as u32;
+    let smooth = |value: f32| value * value * (3.0 - 2.0 * value);
+    let old_opacity = 1.0 - smooth((progress / 0.68).clamp(0.0, 1.0));
+    let new_opacity = smooth(((progress - 0.24) / 0.76).clamp(0.0, 1.0));
     let sample = |frame: &[u32], row: usize, x: isize| -> u32 {
         if x < clip_left as isize || x >= width as isize {
             0
@@ -1284,8 +1326,9 @@ fn compose_slide(
             let old = sample(from, row, x as isize + shift_out);
             let new = sample(to, row, x as isize - shift_in);
             let channel = |shift: u32| {
-                let (a, b) = ((old >> shift) & 0xff, (new >> shift) & 0xff);
-                ((a * (256 - mix) + b * mix) >> 8) << shift
+                let a = ((old >> shift) & 0xff) as f32 * old_opacity;
+                let b = ((new >> shift) & 0xff) as f32 * new_opacity;
+                ((a + b).round().min(255.0) as u32) << shift
             };
             *pixel = channel(16) | channel(8) | channel(0);
         }
@@ -1541,11 +1584,11 @@ mod tests {
         from[5] = 0x0011_1111;
         to[5] = 0x0022_2222;
         let mut out = vec![0; width];
-        // Halfway through a forward switch: the old pixel moved 50 px left,
-        // the new one is still 50 px to the right, both half bright.
+        // Halfway through a forward switch, the rows have moved apart and
+        // each is independently fading through black.
         compose_slide(&from, &to, &mut out, width, 10, 1, 0.5);
-        assert_eq!(out[100], 0x007f_7f7f);
-        assert_eq!(out[200], 0x007f_7f7f);
+        assert_eq!(out[55], 0x002c_2c2c);
+        assert_eq!(out[245], 0x0045_4545);
         assert_eq!(out[150], 0);
         assert_eq!(out[5], 0x0022_2222, "esc is never moved or blended");
         // At the end only the new row remains, in place.

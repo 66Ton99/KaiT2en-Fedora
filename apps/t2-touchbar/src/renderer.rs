@@ -346,6 +346,7 @@ impl Canvas {
         percent: Option<u32>,
         muted: bool,
         fingers: (f32, f32),
+        fade: u32,
     ) {
         const ICON_SIZE: f32 = 1.6;
         const ICON_SLOT: f32 = 60.0;
@@ -369,6 +370,8 @@ impl Canvas {
         .round();
         let cy = f32::from(self.height) / 2.0;
 
+        let full = self.color;
+        self.color = full.scale(fade.min(100));
         self.pixmap.fill(Color::BLACK);
         let icon = match (kind, muted) {
             (LevelKind::Volume, true) => Icon::Mute,
@@ -406,6 +409,7 @@ impl Canvas {
             self.color,
         );
         self.flush();
+        self.color = full;
     }
 
     /// "**Artist** – Title" on the dark bar with borderless previous/next
@@ -1131,9 +1135,9 @@ mod tests {
         save("track-long", &canvas);
         canvas.touch_id("retry", 0.0);
         save("touchid-retry", &canvas);
-        canvas.level(LevelKind::Volume, Some(45), false, (560.0, 640.0));
+        canvas.level(LevelKind::Volume, Some(45), false, (560.0, 640.0), 100);
         save("volume", &canvas);
-        canvas.level(LevelKind::Brightness, Some(80), false, (1620.0, 1780.0));
+        canvas.level(LevelKind::Brightness, Some(80), false, (1620.0, 1780.0), 100);
         save("brightness", &canvas);
     }
 }
