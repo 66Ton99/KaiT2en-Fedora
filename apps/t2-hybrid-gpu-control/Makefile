@@ -23,6 +23,10 @@ APPS_DIR := $(PREFIX)/share/applications
 ICONS_DIR := $(PREFIX)/share/icons/hicolor/scalable/apps
 ICON_THEME_DIR := $(PREFIX)/share/icons/hicolor
 POLICY_DIR ?= /usr/share/polkit-1/actions
+ENV_SRC := contrib/90-kait2en-gsk-renderer.conf
+ENV_DIR ?= /etc/environment.d
+ENV_FILE := $(ENV_DIR)/90-kait2en-gsk-renderer.conf
+FLATPAK_OVERRIDES := /var/lib/flatpak/overrides/global
 
 .PHONY: build check-build install uninstall clean
 
@@ -43,7 +47,7 @@ check-build:
 
 install: check-build
 	$(remove_legacy_units)
-	$(INSTALL) -d -o root -g root -m 0755 $(BIN_DIR) $(LIBEXEC_DIR) $(APPS_DIR) $(ICONS_DIR) $(POLICY_DIR)
+	$(INSTALL) -d -o root -g root -m 0755 $(BIN_DIR) $(LIBEXEC_DIR) $(APPS_DIR) $(ICONS_DIR) $(POLICY_DIR) $(ENV_DIR)
 	$(INSTALL) -o root -g root -m 0755 $(BIN_SRC) $(BIN_DIR)/$(BIN_NAME)
 	$(INSTALL) -o root -g root -m 0755 $(HELPER_SRC) $(LIBEXEC_DIR)/$(HELPER_NAME)
 	$(INSTALL) -o root -g root -m 0755 $(STATUS_HELPER_SRC) $(LIBEXEC_DIR)/$(STATUS_HELPER_NAME)
@@ -51,6 +55,8 @@ install: check-build
 	$(INSTALL) -o root -g root -m 0644 $(ICON_SRC) $(ICONS_DIR)/$(APP_ID).svg
 	$(INSTALL) -o root -g root -m 0644 $(POLICY_SRC) $(POLICY_DIR)/$(APP_ID).policy
 	$(INSTALL) -o root -g root -m 0644 $(STATUS_POLICY_SRC) $(POLICY_DIR)/$(APP_ID).status.policy
+	$(INSTALL) -o root -g root -m 0644 $(ENV_SRC) $(ENV_FILE)
+	if command -v flatpak >/dev/null; then flatpak override --system --env=GSK_RENDERER=ngl; fi
 	$(GTK_UPDATE_ICON_CACHE) --force --ignore-theme-index $(ICON_THEME_DIR)
 	systemctl daemon-reload
 
@@ -59,6 +65,8 @@ uninstall:
 	rm -f $(BIN_DIR)/$(BIN_NAME) $(LIBEXEC_DIR)/$(HELPER_NAME) $(LIBEXEC_DIR)/$(STATUS_HELPER_NAME)
 	rm -f $(APPS_DIR)/$(APP_ID).desktop $(ICONS_DIR)/$(APP_ID).svg
 	rm -f $(POLICY_DIR)/$(APP_ID).policy $(POLICY_DIR)/$(APP_ID).status.policy
+	rm -f $(ENV_FILE)
+	if [ -f $(FLATPAK_OVERRIDES) ]; then sed -i '/^GSK_RENDERER=ngl$$/d' $(FLATPAK_OVERRIDES); fi
 	@if [ -d "$(ICON_THEME_DIR)" ]; then $(GTK_UPDATE_ICON_CACHE) --force --ignore-theme-index $(ICON_THEME_DIR); fi
 	systemctl daemon-reload
 
