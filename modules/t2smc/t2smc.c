@@ -83,6 +83,8 @@
 #define T2SMC_RTC_LATCH_OUTER_RETRIES  4
 #define T2SMC_RTC_LATCH_WRITE_RETRIES  40
 #define T2SMC_RTC_LATCH_READ_RETRIES   20
+/* Sampling the system clock and latching the counter are a few ms apart */
+#define T2SMC_RTC_SYNC_TOLERANCE_MS    50
 #define T2SMC_CHLS_START_OFFSET  5
 #define T2SMC_CHWA_FIXED_LIMIT   80
 #define T2SMC_CHWA_DISABLE_AT    95
@@ -1492,32 +1494,69 @@ static int t2smc_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
-static int t2smc_rtc_set_time(struct device *dev, struct rtc_time *tm)
+/* Like AppleSMCRTC, only write CLKO when the offset changed. */
+static int t2smc_rtc_write_offset(struct t2smc_device *t2, s64 off,
+				  s64 tolerance)
 {
-	struct t2smc_device *t2 = dev_get_drvdata(dev);
-	u64 ctr;
-	s64 off;
 	int ret;
 
-	ret = t2smc_read_rtc_counter(t2, &ctr);
-	if (ret)
-		return ret;
-
-	off = rtc_tm_to_time64(tm) * (s64)t2->rtc_rate - (s64)ctr;
 	off = sign_extend64((u64)off & T2SMC_RTC_MASK, T2SMC_RTC_BITS - 1);
-
-	/*
-	 * Like AppleSMCRTC, only write CLKO when the offset changed. The
-	 * time comes in whole seconds and the counter keeps running until
-	 * it is latched, so tolerate a quarter second.
-	 */
-	if (abs(off - READ_ONCE(t2->rtc_offset)) < t2->rtc_rate / 4)
+	if (abs(off - READ_ONCE(t2->rtc_offset)) < tolerance)
 		return 0;
 
 	ret = t2smc_write_rtc_key(t2, T2SMC_RTC_OFFSET, (u64)off);
 	if (!ret)
 		WRITE_ONCE(t2->rtc_offset, off);
 	return ret;
+}
+
+static int t2smc_rtc_set_time(struct device *dev, struct rtc_time *tm)
+{
+	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	u64 ctr;
+	int ret;
+
+	ret = t2smc_read_rtc_counter(t2, &ctr);
+	if (ret)
+		return ret;
+
+	/*
+	 * The time comes in whole seconds and the counter keeps running
+	 * until it is latched, so tolerate a quarter second.
+	 */
+	return t2smc_rtc_write_offset(t2,
+			rtc_tm_to_time64(tm) * (s64)t2->rtc_rate - (s64)ctr,
+			t2->rtc_rate / 4);
+}
+
+/*
+ * Synchronize CLKO with the system clock. macOS does this automatically
+ * before power transitions, and the T2 derives its own clock from the SMC
+ * RTC while the host sleeps or is off. The kernel's NTP sync never reaches
+ * this RTC on x86 because it stops at the legacy CMOS clock.
+ */
+static void t2smc_rtc_sync_from_system(struct t2smc_device *t2)
+{
+	struct timespec64 now;
+	s64 ticks;
+	u64 ctr;
+	int ret;
+
+	if (!t2->rtc_dev)
+		return;
+
+	ktime_get_real_ts64(&now);
+	ret = t2smc_read_rtc_counter(t2, &ctr);
+	if (!ret) {
+		ticks = now.tv_sec * (s64)t2->rtc_rate +
+			div_u64((u64)now.tv_nsec * t2->rtc_rate, NSEC_PER_SEC);
+		ret = t2smc_rtc_write_offset(t2, ticks - (s64)ctr,
+				div_u64((u64)t2->rtc_rate *
+					T2SMC_RTC_SYNC_TOLERANCE_MS,
+					MSEC_PER_SEC));
+	}
+	if (ret)
+		dev_warn(t2->dev, "failed to synchronize the RTC: %d\n", ret);
 }
 
 static const struct rtc_class_ops t2smc_rtc_ops = {
@@ -1815,11 +1854,26 @@ static const struct acpi_device_id t2smc_ids[] = {
 };
 MODULE_DEVICE_TABLE(acpi, t2smc_ids);
 
+static int t2smc_suspend(struct device *dev)
+{
+	t2smc_rtc_sync_from_system(dev_get_drvdata(dev));
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(t2smc_pm_ops, t2smc_suspend, NULL);
+
+static void t2smc_shutdown(struct platform_device *pdev)
+{
+	t2smc_rtc_sync_from_system(platform_get_drvdata(pdev));
+}
+
 static struct platform_driver t2smc_driver = {
 	.probe = t2smc_probe,
+	.shutdown = t2smc_shutdown,
 	.driver = {
 		.name = "t2smc",
 		.acpi_match_table = t2smc_ids,
+		.pm = pm_sleep_ptr(&t2smc_pm_ops),
 	},
 };
 

@@ -224,10 +224,16 @@ counter. Calendar time is `(counter + CLKO) / CLKR`. Setting the RTC changes
 `CLKO`.
 
 As with AppleSMCRTC, `CLKL` traffic is generated when clients request
-RTC/calendar time. Setting the RTC writes `CLKO` only when the offset differs
-by at least a quarter second, as AppleSMCRTC only writes a changed offset.
-Kait2en synchronizes the RTC after chrony at boot, before suspend, after resume
-and at shutdown, so `CLKO` is written only when the clocks have drifted apart.
+RTC/calendar time. As AppleSMCRTC, the driver writes `CLKO` only when the
+offset changed. Setting the RTC tolerates a quarter second, since the time
+comes in whole seconds.
+
+Before system sleep and at shutdown the driver synchronizes `CLKO` with the
+system clock at nanosecond resolution, like macOS does before power
+transitions. The T2 derives its own clock from the SMC RTC while the host
+sleeps or is off. Kait2en also sets the RTC once chrony has synchronized at
+boot. The kernel's NTP sync does not reach this RTC on x86, because it writes
+the legacy CMOS clock instead.
 
 `tools/t2smc-rtc-client.c` reads the RTC at a fixed interval to exercise the
 `CLKL` path while testing. It is not built with the module:
