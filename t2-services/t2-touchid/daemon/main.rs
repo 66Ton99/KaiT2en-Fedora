@@ -16,10 +16,12 @@ mod cli;
 use cli::{Config, config};
 
 mod fprint;
+mod keyboard;
 mod resume;
 mod signal;
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
@@ -70,6 +72,14 @@ fn main() -> Result<()> {
     let mut user_id = config.user_id;
     let mut bind_pending = config.bind_user.is_some();
     let mut prompt = Signal::new();
+    let mut wait_for_fprintd_close = false;
+    let verifying = Arc::new(AtomicBool::new(false));
+    let cancel_requested = Arc::new(AtomicBool::new(false));
+    if let Err(error) =
+        keyboard::watch_escape(Arc::clone(&verifying), Arc::clone(&cancel_requested))
+    {
+        log(&format!("Escape key monitor unavailable: {error:#}"));
+    }
     let resumed = resume::watch();
     let mut unreachable_since: Option<Instant> = None;
     log(&format!(
@@ -132,6 +142,16 @@ fn main() -> Result<()> {
             continue;
         }
 
+        if wait_for_fprintd_close {
+            if fprint::device_is_open(&config.socket) {
+                sleep(IDLE_POLL);
+                continue;
+            }
+            log("fprintd closed the cancelled request");
+            wait_for_fprintd_close = false;
+            stages_set = false;
+        }
+
         // libfprint only listens while fprintd holds the device open, which is
         // the duration of one authentication attempt.
         if !fprint::device_is_open(&config.socket) {
@@ -158,7 +178,15 @@ fn main() -> Result<()> {
             stages_set = fprint::send(&config.socket, "SET_ENROLL_STAGES 1").is_ok();
         }
 
-        if let Err(error) = serve(session.as_mut().unwrap(), &config, &identities, &mut prompt) {
+        if let Err(error) = serve(
+            session.as_mut().unwrap(),
+            &config,
+            &identities,
+            &mut prompt,
+            &verifying,
+            &cancel_requested,
+            &mut wait_for_fprintd_close,
+        ) {
             log(&format!("attempt failed: {error:#}"));
             prompt.set(State::Failed);
             fprint::report_failure(&config.socket);
@@ -277,7 +305,15 @@ fn log(message: &str) {
 /// matched. The socket is deliberately not probed while the match runs,
 /// because every connection is a command channel and probing would disturb the
 /// operation libfprint has in flight.
-fn serve(session: &mut Session, config: &Config, identities: &[Identity], prompt: &mut Signal) -> Result<()> {
+fn serve(
+    session: &mut Session,
+    config: &Config,
+    identities: &[Identity],
+    prompt: &mut Signal,
+    verifying: &AtomicBool,
+    cancel_requested: &AtomicBool,
+    wait_for_fprintd_close: &mut bool,
+) -> Result<()> {
     // First of all, before anything can take time: fprintd drops a stored
     // finger the moment it finds the device does not have it, so the bound
     // ones have to be back in place before it looks.
@@ -300,13 +336,27 @@ fn serve(session: &mut Session, config: &Config, identities: &[Identity], prompt
     // Nothing else is sent before the match: every command reaches libfprint's
     // state machine, and changing the enrolment stage count part way through
     // an enrolment throws its progress away.
+    cancel_requested.store(false, Ordering::Relaxed);
     session.start_match(config.flags, proto::NO_CREDENTIAL_SET)?;
+    verifying.store(true, Ordering::Release);
     log("put your finger on the sensor");
 
     let deadline = Instant::now() + MATCH_WINDOW;
     let mut outcome = None;
+    let mut cancelled = false;
     while Instant::now() < deadline {
-        match session.next_event(EVENT_WAIT)? {
+        let event = match session.next_event(EVENT_WAIT) {
+            Ok(event) => event,
+            Err(error) => {
+                verifying.store(false, Ordering::Release);
+                return Err(error.into());
+            }
+        };
+        if cancel_requested.swap(false, Ordering::AcqRel) {
+            cancelled = true;
+            break;
+        }
+        match event {
             Some(Event::MatchResult { slot, bytes }) => {
                 log(&format!("match result: slot {slot:?}, {bytes} bytes"));
                 outcome = Some(slot);
@@ -324,7 +374,22 @@ fn serve(session: &mut Session, config: &Config, identities: &[Identity], prompt
             Some(Event::Statistics(_)) | None => {}
         }
     }
+    verifying.store(false, Ordering::Release);
+    cancelled |= cancel_requested.swap(false, Ordering::AcqRel);
     session.cancel()?;
+
+    if cancelled {
+        log("verification cancelled with Escape");
+        match fprint::send(&config.socket, "ERROR 5") {
+            Ok(()) => log("reported cancelled verification to fprintd"),
+            Err(error) => {
+                log(&format!("could not report cancellation to fprintd: {error:#}"));
+            }
+        }
+        *wait_for_fprintd_close = true;
+        prompt.set(State::Idle);
+        return Ok(());
+    }
 
     match outcome {
         Some(Some(slot)) => {

@@ -14,12 +14,20 @@ use t2_biometrickit::Identity;
 /// Where fprintd keeps the binding between a user and a print.
 pub const STORE: &str = "/var/lib/fprint";
 
-/// A bare connection carries no command, so it cannot disturb an operation
-/// libfprint has in flight. It succeeds only while fprintd holds the device
-/// open; the socket file itself stays behind after a close, so its presence
-/// proves nothing.
+/// Check whether libfprint is listening without opening a client connection.
+/// Every connection replaces the current client and must carry a command.
 pub fn device_is_open(path: &str) -> bool {
-    UnixStream::connect(path).is_ok()
+    let Ok(sockets) = std::fs::read_to_string("/proc/net/unix") else {
+        return false;
+    };
+    socket_table_contains(&sockets, path)
+}
+
+fn socket_table_contains(sockets: &str, path: &str) -> bool {
+    sockets
+        .lines()
+        .skip(1)
+        .any(|line| line.split_whitespace().nth(7) == Some(path))
 }
 
 pub fn send(path: &str, command: &str) -> Result<()> {
@@ -69,4 +77,18 @@ pub fn print_id(identity: &Identity) -> String {
         u[0], u[1], u[2], u[3], u[4], u[5], u[6], u[7],
         u[8], u[9], u[10], u[11], u[12], u[13], u[14], u[15]
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::socket_table_contains;
+
+    #[test]
+    fn matches_socket_path_in_proc_table() {
+        let sockets = "Num RefCount Protocol Flags Type St Inode Path\n\\
+                       0000000000000000: 00000002 00000000 00010000 0001 01 42 /run/t2-touchid/fprint.sock\n";
+
+        assert!(socket_table_contains(sockets, "/run/t2-touchid/fprint.sock"));
+        assert!(!socket_table_contains(sockets, "/run/other.sock"));
+    }
 }

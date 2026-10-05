@@ -9,6 +9,10 @@ reachable over IPv6 on the CDC-NCM link. This daemon does that part and feeds
 `fprintd` through libfprint's virtual storage device, so stock `fprintd`, stock
 `libfprint` and stock `pam_fprintd` are used, with nothing patched.
 
+Pressing Esc during verification stops the active match and asks `fprintd` to
+stop the verification, so the authentication flow can continue without waiting
+for the scan timeout. The key is monitored through libinput on `seat0`.
+
 ## Arming
 
 The virtual device listens on a Unix socket only while `fprintd` holds it open,

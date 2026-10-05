@@ -7,6 +7,9 @@ description = "Bridges the Apple T2 Touch ID sensor to fprintd through libfprint
 
 [dependencies]
 anyhow = "1.0"
+input = "0.9"
+input-linux = "0.7"
+libc = "0.2"
 zbus = "5"
 t2-biometrickit = { path = "protocols/t2-biometrickit" }
 
