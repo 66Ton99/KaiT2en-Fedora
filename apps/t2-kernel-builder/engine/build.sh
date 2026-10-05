@@ -427,7 +427,10 @@ if [[ ! -f $WORK/.prepared ]]; then
 		# Fedora's localmodconfig invokes oldconfig and otherwise waits forever
 		# for answers when new symbols remain after module streamlining.
 		set +o pipefail
-		yes '' | make -C "$TREE" localmodconfig
+		# The EFI system partition is VFAT with iocharset=iso8859-1. Its
+		# modules are often unloaded while the profile is captured, and
+		# without them /boot/efi fails to mount and boot ends in emergency mode.
+		yes '' | make -C "$TREE" LMC_KEEP="fs/fat:fs/nls" localmodconfig
 		localmod_status=${PIPESTATUS[1]}
 		set -o pipefail
 		((localmod_status == 0)) || exit "$localmod_status"
