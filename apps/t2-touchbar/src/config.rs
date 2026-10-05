@@ -23,6 +23,8 @@ pub struct Config {
     pub brightness_swipe_step_px: u32,
     pub mode_swipe_px: u32,
     pub follow_keyboard_backlight: bool,
+    pub activity_backlight: bool,
+    pub activity_timeout_ms: u64,
     pub show_track_changes: bool,
 }
 
@@ -41,6 +43,8 @@ impl Default for Config {
             brightness_swipe_step_px: 40,
             mode_swipe_px: 160,
             follow_keyboard_backlight: true,
+            activity_backlight: true,
+            activity_timeout_ms: 30_000,
             show_track_changes: true,
         }
     }
@@ -85,6 +89,10 @@ impl Config {
                 && self.brightness_swipe_step_px >= 10
                 && self.mode_swipe_px >= 40,
             "swipe distances are too short"
+        );
+        anyhow::ensure!(
+            (5_000..=300_000).contains(&self.activity_timeout_ms),
+            "activity_timeout_ms must be 5000..300000"
         );
         parse_color(&self.key_color)
             .with_context(|| format!("key_color {:?} must be #rrggbb", self.key_color))?;

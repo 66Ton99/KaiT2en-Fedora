@@ -73,6 +73,15 @@ The panel itself only has two brightness steps. The key glyphs are therefore
 dimmed in software to follow the keyboard backlight, so the bar and the keys
 look alike. A readable minimum remains while the keyboard backlight is off.
 
+Keyboard, trackpad and Touch Bar activity show the escape key and restore the
+keyboard backlight to its most recently selected level. After 30 seconds
+without activity, the daemon reads and remembers the current user level, then
+turns off both backlights. Input is handled through libinput events. The daemon
+does not poll while idle. The escape key and keyboard backlight fade over 700 ms.
+Set `activity_backlight = false` to turn this
+behavior off, or change `activity_timeout_ms` (5,000–300,000 ms) to adjust the
+idle period.
+
 ## Installation
 
 For a standalone Fedora installation from the repository, run:

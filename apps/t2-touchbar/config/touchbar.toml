@@ -32,6 +32,11 @@ mode_swipe_px = 160
 # readable minimum while the keyboard backlight is off.
 follow_keyboard_backlight = true
 
+# Show the escape key and restore the keyboard backlight on keyboard,
+# trackpad or Touch Bar activity. Both go dark after this idle period.
+activity_backlight = true
+activity_timeout_ms = 30000
+
 # Show "Artist – Title" on the dark bar for five seconds when a media player
 # (MPRIS) starts a new track, with previous/next keys at both ends.
 show_track_changes = true

@@ -507,14 +507,17 @@ impl Canvas {
         }
     }
 
-    /// Only one pressed key on an otherwise black bar, e.g. esc used while
-    /// the bar is dark.
-    pub fn single_key(&mut self, layout: &Layout, index: usize) {
+    /// One key on an otherwise black bar, with optional pressed styling and
+    /// opacity for the activity escape key.
+    pub fn single_key(&mut self, layout: &Layout, index: usize, active: bool, fade: u32) {
+        let full = self.color;
+        self.color = full.scale(fade.min(100));
         self.pixmap.fill(Color::BLACK);
         if let Some(button) = layout.buttons.get(index) {
-            self.button(button, true);
+            self.button(button, active);
         }
         self.flush();
+        self.color = full;
     }
 
     fn button(&mut self, button: &Button, active: bool) {
@@ -1137,7 +1140,13 @@ mod tests {
         save("touchid-retry", &canvas);
         canvas.level(LevelKind::Volume, Some(45), false, (560.0, 640.0), 100);
         save("volume", &canvas);
-        canvas.level(LevelKind::Brightness, Some(80), false, (1620.0, 1780.0), 100);
+        canvas.level(
+            LevelKind::Brightness,
+            Some(80),
+            false,
+            (1620.0, 1780.0),
+            100,
+        );
         save("brightness", &canvas);
     }
 }
