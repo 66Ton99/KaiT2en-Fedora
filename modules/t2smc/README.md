@@ -231,9 +231,10 @@ comes in whole seconds.
 Before system sleep and at shutdown the driver synchronizes `CLKO` with the
 system clock at nanosecond resolution, like macOS does before power
 transitions. The T2 derives its own clock from the SMC RTC while the host
-sleeps or is off. Kait2en also sets the RTC once chrony has synchronized at
-boot. The kernel's NTP sync does not reach this RTC on x86, because it writes
-the legacy CMOS clock instead.
+sleeps or is off. The kernel's NTP sync does not reach this RTC on x86,
+because it writes the legacy CMOS clock instead. Kait2en therefore replaces
+chrony's `rtcsync` with `rtcfile` and `rtcautotrim`, so chrony sets `rtc0`
+itself while synchronized and tracks the SMC clock drift.
 
 `tools/t2smc-rtc-client.c` reads the RTC at a fixed interval to exercise the
 `CLKL` path while testing. It is not built with the module:
