@@ -215,6 +215,26 @@ sudo hwclock --rtc "$RTC_DEV" --show
 sudo hwclock --rtc "$RTC_DEV" --systohc
 ```
 
+The RTC follows Apple's key protocol.`CLKO` is read and sign-extended during
+probe, while `CLKR` supplies the counter frequency (32768 Hz if unavailable).
+If an initial `CLKL` read succeeds, each RTC operation obtains the counter with
+Apple's asynchronous latch exchange. Write six `0xff` bytes, wait 20 ms, then
+poll the 48-bit result.  Machines without that path use the direct `CLKM`
+counter. Calendar time is `(counter + CLKO) / CLKR`. Setting the RTC changes
+`CLKO`.
+
+As with AppleSMCRTC, `CLKL` traffic is generated when clients request
+RTC/calendar time. Kait2en writes the RTC after chrony has synchronized at
+boot, before suspend, after resume and at shutdown.
+
+`tools/t2smc-rtc-client.c` reads the RTC at a fixed interval to exercise the
+`CLKL` path while testing. It is not built with the module:
+
+```bash
+cc -O2 -Wall -Wextra -o t2smc-rtc-client tools/t2smc-rtc-client.c
+sudo ./t2smc-rtc-client /dev/rtc0 1000
+```
+
 ## License
 
 GPL-2.0-only.
