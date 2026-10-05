@@ -68,8 +68,8 @@ const LEVEL_POLL_MS: u64 = 80;
 const LEVEL_POLL_WINDOW_MS: u64 = 600;
 /// Switching rows move far enough to read as a swipe across the bar.
 const LAYER_SLIDE_PX: f32 = 190.0;
-/// Switching rows takes about a quarter less time than before.
-const LAYER_FADE_MS: u64 = 260;
+/// Switching rows take 195 ms.
+const LAYER_FADE_MS: u64 = 195;
 const LAYER_FRAME_MS: u64 = 20;
 /// Track overlay timeline: fade in, hold, fade out.
 const TRACK_FADE_MS: u64 = 700;
@@ -117,6 +117,7 @@ impl LibinputInterface for Interface {
 enum Contact {
     Wake,
     Button(usize),
+    TouchIdEsc(usize),
     Cancelled,
     /// First finger, waiting whether a second one turns this into a swipe.
     Pending,
@@ -423,6 +424,28 @@ impl Runtime {
     }
 
     fn go_dark(&mut self, learned_off: bool) -> Result<()> {
+        self.go_dark_inner(learned_off, false)
+    }
+
+    fn go_dark_to_activity_esc(&mut self, learned_off: bool) -> Result<()> {
+        self.go_dark_inner(learned_off, true)
+    }
+
+    fn go_dark_inner(&mut self, learned_off: bool, preserve_activity_esc: bool) -> Result<()> {
+        let now = self.now_ms();
+        let escape = (preserve_activity_esc
+            && self.config.activity_backlight
+            && self.touch_id == TouchIdState::Idle
+            && self
+                .activity_deadline_ms
+                .is_some_and(|deadline| now < deadline))
+        .then(|| {
+            self.layout
+                .buttons
+                .iter()
+                .position(|button| button.action == Action::Key(Key::Esc))
+        })
+        .flatten();
         self.keyboard.release()?;
         self.active_button = None;
         self.clear_touches();
@@ -433,19 +456,25 @@ impl Runtime {
                 .auto_off(self.now_ms(), self.state.mode, &self.config);
         }
         self.visible = false;
-        self.overlay_shown = false;
-        self.activity_esc_shown = false;
+        self.overlay_shown = escape.is_some();
+        self.activity_esc_shown = escape.is_some();
         self.escape_fade = None;
-        self.escape_opacity = 0.0;
+        self.escape_opacity = if escape.is_some() { 1.0 } else { 0.0 };
         self.overlay_hide_ms = None;
         self.level_kind = None;
         self.level_poll_ms = None;
         self.toast = None;
         self.layer_fade = None;
-        self.canvas.clear();
+        if let Some(index) = escape {
+            self.canvas.single_key(&self.layout, index, false, 100);
+        } else {
+            self.canvas.clear();
+        }
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)?;
-        self.backlight.set(0)?;
+        if escape.is_none() {
+            self.backlight.set(0)?;
+        }
         Ok(())
     }
 
@@ -469,7 +498,24 @@ impl Runtime {
         {
             return self.start_brightness_swipe(slot);
         }
-        if self.touch_id != TouchIdState::Idle || self.swipe.is_some() {
+        if self.touch_id != TouchIdState::Idle {
+            let esc_index = self
+                .layout
+                .buttons
+                .iter()
+                .position(|button| button.action == Action::Key(Key::Esc));
+            if let Some(index) = esc_index.filter(|&index| {
+                self.layout.hit(x, y, self.canvas.height) == Some(index)
+            }) {
+                self.active_button = Some(index);
+                self.contacts.insert(slot, Contact::TouchIdEsc(index));
+                self.render_touch_id(now)?;
+            } else {
+                self.contacts.insert(slot, Contact::Cancelled);
+            }
+            return Ok(());
+        }
+        if self.swipe.is_some() {
             self.contacts.insert(slot, Contact::Cancelled);
             return Ok(());
         }
@@ -1192,6 +1238,14 @@ impl Runtime {
                 }
                 Ok(())
             }
+            Some(Contact::TouchIdEsc(index)) => {
+                if self.layout.hit(x, y, self.canvas.height) != Some(index) {
+                    self.active_button = None;
+                    self.contacts.insert(slot, Contact::Cancelled);
+                    self.render_touch_id(now)?;
+                }
+                Ok(())
+            }
             Some(Contact::MediaHold(index)) => {
                 if self.layout.hit(x, y, self.canvas.height) != Some(index) {
                     self.media_hold = None;
@@ -1312,6 +1366,13 @@ impl Runtime {
                 self.keyboard.release()?;
                 self.active_button = None;
                 self.present_keys()?;
+            }
+            Some(Contact::TouchIdEsc(_)) => {
+                self.keyboard.press(Key::Esc)?;
+                self.keyboard.release()?;
+                self.haptic.click();
+                self.active_button = None;
+                self.render_touch_id(now)?;
             }
             Some(Contact::MediaHold(index)) => {
                 let seeking = self
@@ -1446,7 +1507,7 @@ impl Runtime {
         self.deadline_ms = None;
         if state == TouchIdState::Idle {
             self.next_animation_ms = None;
-            return self.go_dark(false);
+            return self.go_dark_to_activity_esc(false);
         }
         self.visible = true;
         let now = self.now_ms();
@@ -1474,7 +1535,21 @@ impl Runtime {
             self.next_animation_ms = None;
             0.0
         };
-        self.canvas.touch_id(self.touch_id.as_str(), nudge);
+        let esc = self
+            .layout
+            .buttons
+            .iter()
+            .find(|button| button.action == Action::Key(Key::Esc))
+            .copied();
+        let active = esc.is_some_and(|button| {
+            self.active_button.is_some_and(|index| {
+                self.layout
+                    .buttons
+                    .get(index)
+                    .is_some_and(|active_button| active_button.action == button.action)
+            })
+        });
+        self.canvas.touch_id(self.touch_id.as_str(), nudge, esc, active);
         self.display
             .present(&self.canvas.pixels, self.canvas.width, self.canvas.height)
     }
@@ -1543,13 +1618,7 @@ impl Runtime {
             && self.visible
             && self.deadline_ms.is_some_and(|deadline| now >= deadline)
         {
-            self.go_dark(true)?;
-            if self
-                .activity_deadline_ms
-                .is_some_and(|deadline| now < deadline)
-            {
-                self.show_activity_esc()?;
-            }
+            self.go_dark_to_activity_esc(true)?;
         }
         if self.learner.settle(now, &mut self.state, &self.config) {
             self.save();

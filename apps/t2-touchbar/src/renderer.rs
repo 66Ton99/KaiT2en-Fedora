@@ -555,8 +555,11 @@ impl Canvas {
     /// sensor right of the bar. `nudge` (0..1) pushes the arrow towards the
     /// sensor: its tail moves by `ARROW_TAIL_TRAVEL`, its tip twice as far,
     /// so it stretches while it moves.
-    pub fn touch_id(&mut self, state: &str, nudge: f32) {
+    pub fn touch_id(&mut self, state: &str, nudge: f32, esc: Option<Button>, active: bool) {
         self.pixmap.fill(Color::BLACK);
+        if let Some(esc) = esc {
+            self.button(&esc, active);
+        }
         let (parts, color, arrow): (&[(&str, f32)], Rgb, bool) = match state {
             "matched" => (&[("Unlocked", STRONG_WEIGHT)], Rgb(0x34, 0xc7, 0x59), false),
             "retry" => (&[("Try Again", STRONG_WEIGHT)], Rgb(0xff, 0x9f, 0x0a), true),
@@ -1089,7 +1092,7 @@ mod tests {
     #[test]
     fn touch_id_draws_only_near_the_sensor_and_label() {
         let mut canvas = Canvas::new(2170, 60, 0x00dce6ff).unwrap();
-        canvas.touch_id("waiting", 0.5);
+        canvas.touch_id("waiting", 0.5, None, false);
         assert!(canvas.pixels.iter().any(|pixel| *pixel != 0));
         assert_eq!(canvas.pixels[0], 0);
     }
@@ -1117,9 +1120,9 @@ mod tests {
             None,
         );
         save("special", &canvas);
-        canvas.touch_id("waiting", 0.0);
+        canvas.touch_id("waiting", 0.0, None, false);
         save("touchid", &canvas);
-        canvas.touch_id("waiting", 1.0);
+        canvas.touch_id("waiting", 1.0, None, false);
         save("touchid-nudged", &canvas);
         let media = Layout::new(Mode::Media, 2170, false);
         let keys = TrackLayout {
@@ -1136,7 +1139,7 @@ mod tests {
             keys,
         );
         save("track-long", &canvas);
-        canvas.touch_id("retry", 0.0);
+        canvas.touch_id("retry", 0.0, None, false);
         save("touchid-retry", &canvas);
         canvas.level(LevelKind::Volume, Some(45), false, (560.0, 640.0), 100);
         save("volume", &canvas);
