@@ -107,6 +107,11 @@
 #define T2SMC_CELL_VOLTAGE_MAX  "BCMV"
 #define T2SMC_SHUTDOWN_CAUSE    "MSSD"  /* r-w s8 cause of the last shutdown */
 #define T2SMC_SHUTDOWN_FLAG     "MSSW"  /* r-w flag that confirms cause -64 */
+/* x86 state keys that bridgeOS saves into its panic log */
+#define T2SMC_X86_POWER_STATE   "MSPP"
+#define T2SMC_X86_SYSTEM_STATE  "MSPR"
+#define T2SMC_X86_EFI_STATE     "EFBS"
+#define T2SMC_X86_TRANSITIONS   "MSPU"  /* previous power transitions */
 #define T2SMC_NOTIFY            "NTOK"  /* r-w flag, enables event interrupts */
 #define T2SMC_WDT_TIMER         "OSWD"  /* r-w watchdog timeout in seconds */
 #define T2SMC_WDT_LEGACY_TIMER  "NATi"  /* r-w legacy watchdog timeout */
@@ -132,14 +137,14 @@
 #define T2SMC_CAUSE_ONE_SHOT     0xc2  /* -62, reset to 6 once reported */
 #define T2SMC_CAUSE_RESET        6
 #define T2SMC_WDT_DEFAULT_TIMEOUT 60
-#define T2SMC_WDT_MAX_TIMEOUT    255
+#define T2SMC_WDT_HW_MAX_TIMEOUT 255  /* the SMC takes at most one byte */
 #define T2SMC_MAX_FANS           10
 #define T2SMC_FAN_LABEL_LEN      12
 
 static int wdt_timeout = T2SMC_WDT_DEFAULT_TIMEOUT;
 module_param(wdt_timeout, int, 0444);
-MODULE_PARM_DESC(wdt_timeout, "Watchdog timeout in seconds, 1-255 (default="
-		 __MODULE_STRING(T2SMC_WDT_DEFAULT_TIMEOUT) ")");
+MODULE_PARM_DESC(wdt_timeout, "Watchdog timeout in seconds (default="
+		 __MODULE_STRING(T2SMC_WDT_DEFAULT_TIMEOUT) ")");;
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, bool, 0444);
@@ -1986,17 +1991,21 @@ static void t2smc_restore_fans(struct t2smc_device *t2)
 }
 
 /* -- Watchdog (OSWD, or NATi/NATJ on older firmware) -- */
+/*
+ * Longer timeouts are emulated by the watchdog core, which pings the SMC
+ * before the hardware limit runs out, so the SMC never gets more than that.
+ */
 static int t2smc_wdt_ping(struct watchdog_device *wdd)
 {
 	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
 
 	return t2smc_write_uint(t2, t2->has_oswd ? T2SMC_WDT_TIMER :
-				T2SMC_WDT_LEGACY_TIMER, wdd->timeout);
+				T2SMC_WDT_LEGACY_TIMER,
+				min(wdd->timeout, T2SMC_WDT_HW_MAX_TIMEOUT));
 }
 
-static int t2smc_wdt_start(struct watchdog_device *wdd)
+static int t2smc_wdt_arm(struct t2smc_device *t2, struct watchdog_device *wdd)
 {
-	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
 	int ret;
 
 	ret = t2smc_wdt_ping(wdd);
@@ -2007,9 +2016,8 @@ static int t2smc_wdt_start(struct watchdog_device *wdd)
 				T2SMC_WDT_LEGACY_RESTART);
 }
 
-static int t2smc_wdt_stop(struct watchdog_device *wdd)
+static int t2smc_wdt_disarm(struct t2smc_device *t2)
 {
-	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
 	int ret;
 
 	if (t2->has_oswd)
@@ -2021,9 +2029,40 @@ static int t2smc_wdt_stop(struct watchdog_device *wdd)
 	return t2smc_write_uint(t2, T2SMC_WDT_LEGACY_TIMER, 0);
 }
 
+/* Start, stop and timeout changes are rare, so each one is logged */
+static int t2smc_wdt_start(struct watchdog_device *wdd)
+{
+	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
+	int ret;
+
+	ret = t2smc_wdt_arm(t2, wdd);
+	if (ret)
+		dev_warn(t2->dev, "failed to start watchdog: %d\n", ret);
+	else
+		dev_info(t2->dev, "watchdog started (timeout=%us)\n",
+			 wdd->timeout);
+	return ret;
+}
+
+static int t2smc_wdt_stop(struct watchdog_device *wdd)
+{
+	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
+	int ret;
+
+	ret = t2smc_wdt_disarm(t2);
+	if (ret)
+		dev_warn(t2->dev, "failed to stop watchdog: %d\n", ret);
+	else
+		dev_info(t2->dev, "watchdog stopped\n");
+	return ret;
+}
+
 static int t2smc_wdt_set_timeout(struct watchdog_device *wdd,
 				 unsigned int timeout)
 {
+	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
+
+	dev_info(t2->dev, "watchdog timeout set to %us\n", timeout);
 	wdd->timeout = timeout;
 	if (watchdog_active(wdd))
 		return t2smc_wdt_ping(wdd);
@@ -2069,7 +2108,8 @@ static int t2smc_register_watchdog(struct t2smc_device *t2)
 	wdd->ops = &t2smc_wdt_ops;
 	wdd->parent = t2->dev;
 	wdd->min_timeout = 1;
-	wdd->max_timeout = T2SMC_WDT_MAX_TIMEOUT;
+	/* systemd asks for 10 minutes during shutdown (RebootWatchdogSec) */
+	wdd->max_hw_heartbeat_ms = T2SMC_WDT_HW_MAX_TIMEOUT * MSEC_PER_SEC;
 	wdd->timeout = T2SMC_WDT_DEFAULT_TIMEOUT;
 	watchdog_init_timeout(wdd, wdt_timeout, t2->dev);
 	watchdog_set_nowayout(wdd, nowayout);
@@ -2371,6 +2411,35 @@ static void t2smc_log_shutdown_cause(struct t2smc_device *t2)
 			 t2smc_shutdown_causes[i].apple ? "Apple" : "community");
 }
 
+/*
+ * MSSD stays unchanged when the T2 panics and takes the x86 side down.
+ * bridgeOS records these keys in its own panic log, so they are logged raw
+ * in the byte order smcDiagnose prints, to compare them across boots.
+ */
+static void t2smc_log_x86_state(struct t2smc_device *t2)
+{
+	static const char *const keys[] = {
+		T2SMC_X86_POWER_STATE, T2SMC_X86_SYSTEM_STATE,
+		T2SMC_X86_EFI_STATE, T2SMC_X86_TRANSITIONS,
+	};
+	struct t2smc_entry *entry;
+	char line[128];
+	size_t pos = 0;
+	u8 buf[8];
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(keys); i++) {
+		entry = t2smc_get_entry_by_key(t2, keys[i]);
+		if (IS_ERR(entry) || !entry->len || entry->len > sizeof(buf) ||
+		    t2smc_read_key(t2, keys[i], buf, entry->len))
+			continue;
+		pos += scnprintf(line + pos, sizeof(line) - pos, " %s=%*ph",
+				 keys[i], entry->len, buf);
+	}
+	if (pos)
+		dev_info(t2->dev, "previous x86 state:%s\n", line);
+}
+
 /* -- Platform driver callbacks -- */
 static int t2smc_probe(struct platform_device *pdev)
 {
@@ -2447,6 +2516,7 @@ static int t2smc_probe(struct platform_device *pdev)
 	}
 
 	t2smc_log_shutdown_cause(t2);
+	t2smc_log_x86_state(t2);
 
 	ret = t2smc_register_hwmon(t2);
 	if (ret)

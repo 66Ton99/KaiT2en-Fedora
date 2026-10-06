@@ -223,8 +223,11 @@ Values are in millidegrees Celsius. Divide by 1000 for degrees.
 If the SMC has the `OSWD` key, or `NATi` and `NATJ` on older firmware,
 `t2smc` registers a standard Linux watchdog (`/dev/watchdogN`). systemd can
 use it through `RuntimeWatchdogSec=` in `/etc/systemd/system.conf`. The
-timeout range is 1 to 255 seconds. The watchdog is stopped before system
-sleep and restarted on resume, and it is stopped on reboot and poweroff.
+SMC itself accepts at most 255 seconds. Longer timeouts, such as the 10
+minutes systemd requests during shutdown (`RebootWatchdogSec=`), are emulated
+by the kernel watchdog core, which keeps pinging the SMC within that limit.
+The watchdog is stopped before system sleep and restarted on resume, and it
+is stopped on reboot and poweroff. Start, stop and timeout changes are logged.
 
 ### SMC events
 
@@ -245,6 +248,12 @@ load. A command that gets no KeyDone within one second fails.
 At load the driver logs the cause of the previous shutdown from `MSSD`, the
 same value macOS prints as `Previous shutdown cause`. Like macOS it clears
 the one-shot causes -64 and -62 after reporting them.
+
+`MSSD` only reflects how the SMC shut down the x86 side. It stays unchanged
+when the T2 panics and takes the x86 side down, so a T2 panic still shows
+the previous cause. For that case the driver also logs the raw x86 state keys
+that bridgeOS records in its own panic log (`MSPP`, `MSPR`, `EFBS` and
+`MSPU`) as `previous x86 state:`, in the byte order `smcDiagnose` prints.
 
 Each logged cause carries its source. `Apple` descriptions come from Apple's
 PowerManagement sources (`common/CommonLib.c`, PowerManagement-1846).
