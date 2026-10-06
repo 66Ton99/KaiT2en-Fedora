@@ -1,7 +1,8 @@
 # t2smc
 
 Minimal SMC driver for T2 Macs. Provides fan control, battery charge limit,
-temperature, power sensor and RTC access. Hardware monitoring is exposed via
+temperature, current, voltage and power sensors, a watchdog, SMC event
+handling and RTC access. Hardware monitoring is exposed via
 the standard Linux hwmon interface. Requires no other SMC driver.
 
 This is based on applesmc with macsmc patches but rebuilt from scratch.
@@ -75,15 +76,27 @@ done
 HWMON="$(dirname "$(grep -l '^t2smc$' /sys/class/hwmon/hwmon*/name)")"
 ```
 
-## Power telemetry
+## Sensors
 
-Every SMC key whose name starts with `P` is discovered dynamically and exposed
-through standard hwmon `powerN_label` and `powerN_input` files. The label is the
-four-character SMC key and the input value is in microwatts:
+Sensors are discovered dynamically by key prefix. Every key with a float or
+fixed point type becomes a standard hwmon channel. The label is the
+four-character SMC key:
+
+| Prefix | hwmon files                   | Unit              |
+|--------|-------------------------------|-------------------|
+| `T`    | `tempN_label`, `tempN_input`  | millidegree C     |
+| `I`    | `currN_label`, `currN_input`  | milliampere       |
+| `V`    | `inN_label`, `inN_input`      | millivolt         |
+| `P`    | `powerN_label`, `powerN_input`| microwatt         |
+
+Integer keys in these ranges are skipped because their unit differs between
+models. Channel numbers depend on the machine, so match sensors by label:
 
 ```sh
 paste "$HWMON"/power*_label "$HWMON"/power*_input
 ```
+
+## Power telemetry
 
 `t2smc` leaves the system battery and charger under the control of the
 mainline ACPI SBS drivers. It exposes additional SMC telemetry on its hwmon
@@ -102,7 +115,16 @@ smc_battery_cycle_count
 smc_adapter_voltage_uv
 smc_adapter_current_ua
 smc_adapter_power_uw
+smc_battery_time_to_empty_s
+smc_battery_time_to_full_s
+smc_battery_charge_current_ua
+smc_battery_charge_voltage_uv
+smc_battery_cell_voltage_max_uv
 ```
+
+The time files return no data while the battery is neither charging nor
+discharging. Battery current and battery power are positive while charging
+and negative while discharging.
 
 Files for SMC keys not available on a particular model return no data. Values
 are read on demand. There is no periodic kernel polling.
@@ -142,7 +164,11 @@ The fan speed values are in RPM. Writing to `fanN_target` switches the fan to
 manual mode and sets the target speed.
 
 The attributes `fanN_min` and `fanN_max` are limits reported by the SMC.
-`fanN_min` is writable; `fanN_max` is read-only.
+`fanN_min` is writable and `fanN_max` is read-only. If the SMC provides a fan
+name (`FnID`), it appears in `fanN_label`.
+
+After resume the driver restores manual mode and the last target speed for
+every fan that was set through `fanN_target`.
 
 ### Battery charge limit
 
@@ -191,6 +217,82 @@ Macs include:
 | TB0T   | Battery temperature     |
 
 Values are in millidegrees Celsius. Divide by 1000 for degrees.
+
+### Watchdog
+
+If the SMC has the `OSWD` key, or `NATi` and `NATJ` on older firmware,
+`t2smc` registers a standard Linux watchdog (`/dev/watchdogN`). systemd can
+use it through `RuntimeWatchdogSec=` in `/etc/systemd/system.conf`. The
+timeout range is 1 to 255 seconds. The watchdog is stopped before system
+sleep and restarted on resume, and it is stopped on reboot and poweroff.
+
+### SMC events
+
+Every SMC command sleeps until the SMC signals completion with its KeyDone
+interrupt. The driver never polls the status register. It therefore
+requires the SMC interrupt, the I/O port window that carries the event ID
+and the `NTOK` key, and it does not load without them. `NTOK` is set as the
+first command after mapping MMIO and again on resume.
+
+When the SMC reports imminent power loss (event `0x40`), the driver syncs
+all filesystems and flushes the block devices. macOS reacts to the same event
+by telling every AHCI and NVMe disk to prepare for abrupt power loss. Log
+messages from the SMC (event `0x4c`) appear in the kernel log as `SMC log:`.
+A BridgeOS panic is logged as a warning. Thermal level changes are only
+logged at debug level because the SMC sends them about once per second under
+load. A command that gets no KeyDone within one second fails.
+
+At load the driver logs the cause of the previous shutdown from `MSSD`, the
+same value macOS prints as `Previous shutdown cause`. Like macOS it clears
+the one-shot causes -64 and -62 after reporting them.
+
+Each logged cause carries its source. `Apple` descriptions come from Apple's
+PowerManagement sources (`common/CommonLib.c`, PowerManagement-1846).
+`community` descriptions come from the Eclectic Light Company and George
+Garside lists. Only causes on which those lists agree, or that only one of
+them names, are included. Apple wins every conflict. The community entries
+are unverified and the log is meant to confirm or refute them. Any other
+value is logged as `unknown`.
+
+| Cause | Source    | Meaning |
+|-------|-----------|---------|
+| 0 | Apple | Battery disconnected |
+| 1 | Apple | Normal warm reset |
+| 2 | Apple | Power supply disconnected |
+| 3 | Apple | Power button pressed for > 4 sec |
+| 5 | Apple | Software initiated shutdown |
+| 7 | Apple | Normal shutdown by SOC |
+| -3 | community | Multiple temperature sensors too high |
+| -14 | community | Electricity spike or surge |
+| -20 | community | BridgeOS (T2) initiated shutdown |
+| -60 | Apple | Battery fully drained |
+| -61 | community | Watchdog detected unresponsive app, shutting down |
+| -62 | community | Watchdog detected unresponsive app, restarting |
+| -64 | community | Kernel panic |
+| -71 | community | Memory temperature too high |
+| -74 | community | Battery temperature too high |
+| -75 | community | Power adapter communication problem |
+| -78 | community | Incorrect input current from power adapter |
+| -79 | community | Incorrect current from battery |
+| -81 | Apple | Thermal shutdown for overtemp |
+| -86 | community | Proximity temperature too high |
+| -100 | community | Power supply temperature too high |
+| -101 | community | Display temperature too high |
+| -102 | community | Overvoltage |
+| -103 | community | Battery voltage too low |
+| -104 | community | Unknown battery fault |
+| -127 | community | PMU/SMC forced shutdown for another cause |
+
+The SMC publishes its current thermal levels for CPU, IO and GPU. They are
+read on demand from the hwmon files `smc_thermal_level_cpu`,
+`smc_thermal_level_io` and `smc_thermal_level_gpu`.
+
+### Module parameters
+
+| Parameter     | Default | Meaning                                         |
+|---------------|---------|-------------------------------------------------|
+| `wdt_timeout` | 60      | Watchdog timeout in seconds                     |
+| `nowayout`    | kernel  | Watchdog cannot be stopped once started         |
 
 ### RTC
 

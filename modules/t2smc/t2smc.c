@@ -9,10 +9,11 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#define T2SMC_VERSION "0.0.2"
+#define T2SMC_VERSION "0.0.3"
 
 #include <linux/delay.h>
 #include <linux/acpi.h>
+#include <linux/completion.h>
 #include <linux/kernel.h>
 #include <linux/bitops.h>
 #include <linux/math64.h>
@@ -21,12 +22,16 @@
 #include <linux/mutex.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <linux/interrupt.h>
 #include <linux/io.h>
 #include <linux/err.h>
 #include <linux/ktime.h>
 #include <linux/power_supply.h>
 #include <linux/platform_device.h>
+#include <linux/suspend.h>
 #include <linux/rtc.h>
+#include <linux/string.h>
+#include <linux/watchdog.h>
 #include <linux/workqueue.h>
 
 /* MMIO register offsets for T2 SMC interface */
@@ -37,13 +42,34 @@
 #define T2SMC_IOMEM_KEY_SMC_ID    0x007E
 #define T2SMC_IOMEM_KEY_CMD       0x007F
 #define T2SMC_IOMEM_MIN_SIZE      0x4006
+#define T2SMC_IOMEM_INT_STATUS    0x4000
+
+/* I/O port window, only used to fetch the event ID of an interrupt */
+#define T2SMC_PORT_MIN_SIZE       32
+#define T2SMC_PORT_EVENT          0x1f
+#define T2SMC_PORT_THERMAL_CPU    0x18  /* thermal levels, read by */
+#define T2SMC_PORT_THERMAL_IO     0x19  /* AppleSMC::smcGetThermalLevel */
+#define T2SMC_PORT_THERMAL_GPU    0x1a
+
+/* SMC log text that comes with event 0x4c */
+#define T2SMC_IOMEM_LOG           0x0080
+#define T2SMC_LOG_LEN             0x7f
+
+/* SMC event IDs delivered by interrupt while NTOK is set, names as in AppleSMC */
+#define T2SMC_EVENT_SHUTDOWN       0x40  /* ShutdownImminent */
+#define T2SMC_EVENT_BRIDGEOS_PANIC 0x41  /* BridgeOSPanic */
+#define T2SMC_EVENT_KEY_DONE       0x4b  /* KeyDone, every finished command */
+#define T2SMC_EVENT_LOG            0x4c  /* LogMessage */
+#define T2SMC_EVENT_THERMAL_LEVEL  0x54  /* PThermalLevelChanged */
+#define T2SMC_EVENT_THERMAL_CONFIG 0x55  /* SMC_Thermal_Config_Notification */
+#define T2SMC_EVENT_PLIMIT         0x80  /* PLimitChange */
 
 /* Key type info in MMIO (after GET_KEY_TYPE_CMD) */
 #define T2SMC_IOMEM_KEY_TYPE_CODE      0
 #define T2SMC_IOMEM_KEY_TYPE_DATA_LEN  5
 #define T2SMC_IOMEM_KEY_TYPE_FLAGS     6
 
-#define T2SMC_MIN_WAIT          0x0008
+#define T2SMC_CMD_TIMEOUT_MS    1000  /* as AppleSMC waitForKeyDone */
 
 /* SMC commands */
 #define T2SMC_READ_CMD               0x10
@@ -74,8 +100,18 @@
 #define T2SMC_ADAPTER_POWER_OLD "PD0R"
 #define T2SMC_ADAPTER_POWER     "PDTR"
 #define T2SMC_ADAPTER_VOLTAGE   "VD0R"
+#define T2SMC_BATTERY_TIME_TO_EMPTY "B0TE"
+#define T2SMC_BATTERY_TIME_TO_FULL  "B0TF"
+#define T2SMC_CHARGE_CURRENT    "CHBI"
+#define T2SMC_CHARGE_VOLTAGE    "CHBV"
+#define T2SMC_CELL_VOLTAGE_MAX  "BCMV"
+#define T2SMC_SHUTDOWN_CAUSE    "MSSD"  /* r-w s8 cause of the last shutdown */
+#define T2SMC_SHUTDOWN_FLAG     "MSSW"  /* r-w flag that confirms cause -64 */
+#define T2SMC_NOTIFY            "NTOK"  /* r-w flag, enables event interrupts */
+#define T2SMC_WDT_TIMER         "OSWD"  /* r-w watchdog timeout in seconds */
+#define T2SMC_WDT_LEGACY_TIMER  "NATi"  /* r-w legacy watchdog timeout */
+#define T2SMC_WDT_LEGACY_MODE   "NATJ"  /* r-w legacy watchdog action */
 #define FLOAT_TYPE      "flt "
-#define TEMP_SENSOR_TYPE "sp78"
 
 #define T2SMC_RTC_BYTES      6
 #define T2SMC_RTC_BITS       (8 * T2SMC_RTC_BYTES)
@@ -90,6 +126,25 @@
 #define T2SMC_CHLS_START_OFFSET  5
 #define T2SMC_CHWA_FIXED_LIMIT   80
 #define T2SMC_CHWA_DISABLE_AT    95
+#define T2SMC_WDT_LEGACY_RESTART 2
+/* Shutdown causes that AppleSMC::smcPublishShutdownCause treats specially */
+#define T2SMC_CAUSE_FLAGGED      0xc0  /* -64, only valid while MSSW is 1 */
+#define T2SMC_CAUSE_ONE_SHOT     0xc2  /* -62, reset to 6 once reported */
+#define T2SMC_CAUSE_RESET        6
+#define T2SMC_WDT_DEFAULT_TIMEOUT 60
+#define T2SMC_WDT_MAX_TIMEOUT    255
+#define T2SMC_MAX_FANS           10
+#define T2SMC_FAN_LABEL_LEN      12
+
+static int wdt_timeout = T2SMC_WDT_DEFAULT_TIMEOUT;
+module_param(wdt_timeout, int, 0444);
+MODULE_PARM_DESC(wdt_timeout, "Watchdog timeout in seconds, 1-255 (default="
+		 __MODULE_STRING(T2SMC_WDT_DEFAULT_TIMEOUT) ")");
+
+static bool nowayout = WATCHDOG_NOWAYOUT;
+module_param(nowayout, bool, 0444);
+MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
+		 __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
 /* Fan speed key formats */
 static const char *const fan_speed_fmt[] = {
@@ -113,6 +168,12 @@ struct t2smc_entry {
 	u8   flags;
 };
 
+/* Sensor keys of one hwmon channel type, discovered at probe */
+struct t2smc_sensors {
+	unsigned int count;
+	char (*keys)[5];
+};
+
 /* -- Main device structure -- */
 struct t2smc_device {
 	struct acpi_device *adev;
@@ -123,15 +184,33 @@ struct t2smc_device {
 	void __iomem *iomem;
 	u32 iomem_addr, iomem_size;
 
+	/* Event interrupt */
+	u16 port_base;
+	bool has_port;
+	struct completion cmd_done;  /* KeyDone, every command waits for it */
+	struct work_struct sync_work;  /* storage sync on ShutdownImminent */
+
 	/* Key cache */
 	struct mutex mutex;
 	unsigned int key_count;
 	unsigned int fan_count;
-	unsigned int temp_count;
-	unsigned int power_count;
 	struct t2smc_entry *cache;
-	char (*temp_keys)[5]; /* [temp_count] dynamically allocated */
-	char (*power_keys)[5]; /* [power_count] dynamically allocated */
+	struct t2smc_sensors temp;
+	struct t2smc_sensors curr;
+	struct t2smc_sensors in;
+	struct t2smc_sensors power;
+
+	/* Fans */
+	char fan_labels[T2SMC_MAX_FANS][T2SMC_FAN_LABEL_LEN + 1];
+	unsigned long fan_manual; /* fans set to manual mode via fanN_target */
+	unsigned int fan_target[T2SMC_MAX_FANS];
+
+	/* Watchdog */
+	struct watchdog_device wdd;
+	bool has_wdt;
+	bool has_oswd;
+	bool wdt_suspended;
+
 	struct rtc_device *rtc_dev;
 	bool has_rtc_latch;
 	s64 rtc_offset;
@@ -156,26 +235,37 @@ struct t2smc_device {
 /* -- MMIO helpers -- */
 static inline void iomem_clear_status(struct t2smc_device *t2)
 {
+	reinit_completion(&t2->cmd_done);
 	if (ioread8(t2->iomem + T2SMC_IOMEM_KEY_STATUS))
 		iowrite8(0, t2->iomem + T2SMC_IOMEM_KEY_STATUS);
 }
 
+static inline bool iomem_cmd_done(struct t2smc_device *t2)
+{
+	return ioread8(t2->iomem + T2SMC_IOMEM_KEY_STATUS) & 0x20;
+}
+
+/*
+ * Sleep until KeyDone. The status is checked after every wakeup because a
+ * late interrupt of the previous command can complete the wait early.
+ */
 static int iomem_wait_read(struct t2smc_device *t2)
 {
-	u8 status;
-	int us, i;
+	unsigned long left = msecs_to_jiffies(T2SMC_CMD_TIMEOUT_MS);
 
-	us = T2SMC_MIN_WAIT;
-	for (i = 0; i < 24; i++) {
-		status = ioread8(t2->iomem + T2SMC_IOMEM_KEY_STATUS);
-		if (status & 0x20)
+	for (;;) {
+		left = wait_for_completion_timeout(&t2->cmd_done, left);
+		if (!left)
+			break;
+		if (iomem_cmd_done(t2))
 			return 0;
-		usleep_range(us, us * 2);
-		if (i > 9)
-			us <<= 1;
+		reinit_completion(&t2->cmd_done);
+		/* KeyDone may have arrived between the check and the reinit */
+		if (iomem_cmd_done(t2))
+			return 0;
 	}
-	dev_warn(t2->dev, "%s: timeout\n", __func__);
-	return -EIO;
+	dev_warn(t2->dev, "%s: no KeyDone interrupt\n", __func__);
+	return -ETIMEDOUT;
 }
 
 /* -- MMIO SMC read/write -- */
@@ -477,21 +567,62 @@ static int t2smc_hex_digit(char digit)
 	return -EINVAL;
 }
 
+/* Fractional bits of a 16-bit "spXY"/"fpXY" fixed point key, or an error */
+static int t2smc_fixed_point_bits(const struct t2smc_entry *entry,
+				  bool *is_signed)
+{
+	int integer_bits, fractional_bits;
+
+	if (entry->len != 2 ||
+	    (strncmp(entry->type, "sp", 2) && strncmp(entry->type, "fp", 2)))
+		return -EOPNOTSUPP;
+
+	*is_signed = entry->type[0] == 's';
+	integer_bits = t2smc_hex_digit(entry->type[2]);
+	fractional_bits = t2smc_hex_digit(entry->type[3]);
+	if (integer_bits < 0 || fractional_bits < 0 ||
+	    integer_bits + fractional_bits != (*is_signed ? 15 : 16))
+		return -EOPNOTSUPP;
+	return fractional_bits;
+}
+
+static bool t2smc_is_int_type(const struct t2smc_entry *entry)
+{
+	return (entry->type[0] == 'u' || entry->type[0] == 's') &&
+	       entry->type[1] == 'i' &&
+	       (entry->len == 1 || entry->len == 2 || entry->len == 4);
+}
+
+/* Keys whose value carries a unit: floats and fixed point numbers */
+static bool t2smc_is_sensor_type(const struct t2smc_entry *entry)
+{
+	bool is_signed;
+
+	if (!strcmp(entry->type, FLOAT_TYPE))
+		return entry->len == 4;
+	return t2smc_fixed_point_bits(entry, &is_signed) >= 0;
+}
+
+/*
+ * Read a numeric key and multiply it by @scale. Floats and fixed point
+ * numbers keep their fraction until scaled. Integers are big endian.
+ */
 static int t2smc_read_scaled(struct t2smc_device *t2, const char *key,
 			     long scale, long *val)
 {
 	struct t2smc_entry *entry;
+	bool is_signed;
 	u8 buf[4];
 	u32 raw;
 	u64 magnitude;
-	int exponent;
+	int exponent, fractional_bits, i;
 	int ret;
 
 	entry = t2smc_get_entry_by_key(t2, key);
 	if (IS_ERR(entry))
 		return PTR_ERR(entry);
 
-	if (!strcmp(entry->type, "flt ")) {
+	if (!strcmp(entry->type, FLOAT_TYPE)) {
 		ret = t2smc_read_key(t2, key, buf, sizeof(buf));
 		if (ret)
 			return ret;
@@ -516,31 +647,54 @@ static int t2smc_read_scaled(struct t2smc_device *t2, const char *key,
 		return 0;
 	}
 
-	if (entry->len == 2) {
+	fractional_bits = t2smc_fixed_point_bits(entry, &is_signed);
+	if (fractional_bits >= 0) {
 		u16 fixed;
-		int integer_bits, fractional_bits;
-		bool signed_type = entry->type[0] == 's';
-
-		if ((strncmp(entry->type, "sp", 2) &&
-		     strncmp(entry->type, "fp", 2)))
-			return -EOPNOTSUPP;
-		integer_bits = t2smc_hex_digit(entry->type[2]);
-		fractional_bits = t2smc_hex_digit(entry->type[3]);
-		if (integer_bits < 0 || fractional_bits < 0 ||
-		    integer_bits + fractional_bits != (signed_type ? 15 : 16))
-			return -EOPNOTSUPP;
 
 		ret = t2smc_read_be16(t2, key, &fixed);
 		if (ret)
 			return ret;
-		if (signed_type)
+		if (is_signed)
 			*val = mult_frac((s16)fixed, scale, BIT(fractional_bits));
 		else
 			*val = mult_frac(fixed, scale, BIT(fractional_bits));
 		return 0;
 	}
 
+	if (t2smc_is_int_type(entry)) {
+		ret = t2smc_read_key(t2, key, buf, entry->len);
+		if (ret)
+			return ret;
+
+		raw = 0;
+		for (i = 0; i < entry->len; i++)
+			raw = raw << 8 | buf[i];
+		if (entry->type[0] == 's')
+			*val = (long)sign_extend32(raw, entry->len * 8 - 1) * scale;
+		else
+			*val = (long)raw * scale;
+		return 0;
+	}
+
 	return -EOPNOTSUPP;
+}
+
+/* Write an unsigned integer key big endian in the size the SMC reports */
+static int t2smc_write_uint(struct t2smc_device *t2, const char *key, u32 val)
+{
+	struct t2smc_entry *entry;
+	u8 buf[4];
+	int i;
+
+	entry = t2smc_get_entry_by_key(t2, key);
+	if (IS_ERR(entry))
+		return PTR_ERR(entry);
+	if (!entry->len || entry->len > sizeof(buf))
+		return -EINVAL;
+
+	for (i = entry->len - 1; i >= 0; i--, val >>= 8)
+		buf[i] = val & 0xff;
+	return t2smc_write_key(t2, key, buf, entry->len);
 }
 
 /* -- T2 float conversion (fans use IEEE 754 "flt " type on T2) -- */
@@ -568,19 +722,49 @@ static inline u32 u32_to_float(u32 d)
 		     ((d << (23 - (exp - 0x7f))) & ((1u << 23) - 1)));
 }
 
-static int t2smc_read_temp(struct t2smc_device *t2, const char *key, long *val)
+/* -- Initialization -- */
+/* Collect all keys in [@first, @last) that decode to a unit value */
+static int t2smc_discover_sensors(struct t2smc_device *t2, const char *first,
+				  const char *last, struct t2smc_sensors *set)
 {
-	u8 buf[2];
-	s16 raw;
+	unsigned int i, begin, end, n = 0;
 	int ret;
 
-	ret = t2smc_read_key(t2, key, buf, 2);
+	ret = t2smc_get_lower_bound(t2, &begin, first);
 	if (ret)
 		return ret;
+	ret = t2smc_get_lower_bound(t2, &end, last);
+	if (ret)
+		return ret;
+	if (begin == end)
+		return 0;
 
-	raw = (s16)(((u16)buf[0] << 8) | buf[1]);
-	*val = (long)(raw >> 6) * 250;
+	set->keys = kcalloc(end - begin, sizeof(set->keys[0]), GFP_KERNEL);
+	if (!set->keys)
+		return -ENOMEM;
+
+	for (i = begin; i < end; i++) {
+		struct t2smc_entry *entry = t2smc_get_entry_by_index(t2, i);
+
+		if (IS_ERR(entry) || !t2smc_is_sensor_type(entry))
+			continue;
+		memcpy(set->keys[n++], entry->key, 4);
+	}
+	set->count = n;
 	return 0;
+}
+
+static void t2smc_free_sensors(struct t2smc_device *t2)
+{
+	struct t2smc_sensors *sets[] = { &t2->temp, &t2->curr, &t2->in,
+					 &t2->power };
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(sets); i++) {
+		kfree(sets[i]->keys);
+		sets[i]->keys = NULL;
+		sets[i]->count = 0;
+	}
 }
 
 /* -- Initialization -- */
@@ -603,108 +787,23 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
 
 	/* Discover fan count */
 	ret = t2smc_read_key(t2, FANS_COUNT, tmp, 1);
-	if (ret) {
-		kfree(t2->cache);
-		t2->cache = NULL;
-		t2->key_count = 0;
+	if (ret)
 		return ret;
-	}
-	t2->fan_count = tmp[0];
-	if (t2->fan_count > 10)
-		t2->fan_count = 10;
+	t2->fan_count = min_t(unsigned int, tmp[0], T2SMC_MAX_FANS);
 
-	/* Discover all power keys in the sorted P..Q range. */
-	{
-		unsigned int p, power_begin, power_end;
-
-		ret = t2smc_get_lower_bound(t2, &power_begin, "P");
-		if (ret)
-			return ret;
-		ret = t2smc_get_lower_bound(t2, &power_end, "Q");
-		if (ret)
-			return ret;
-
-		t2->power_count = power_end - power_begin;
-		if (t2->power_count) {
-			t2->power_keys = kcalloc(t2->power_count,
-						 sizeof(t2->power_keys[0]),
-						 GFP_KERNEL);
-			if (!t2->power_keys) {
-				t2->power_count = 0;
-			} else {
-				for (p = power_begin; p < power_end; p++) {
-					struct t2smc_entry *entry;
-
-					entry = t2smc_get_entry_by_index(t2, p);
-					if (IS_ERR(entry)) {
-						t2->power_count = p - power_begin;
-						break;
-					}
-					memcpy(t2->power_keys[p - power_begin],
-					       entry->key, 4);
-					t2->power_keys[p - power_begin][4] = '\0';
-				}
-			}
-		}
-	}
-
-	/* Discover temperature sensors (keys in T..U range, type sp78) */
-	{
-		unsigned int t, temp_begin, temp_end;
-
-		ret = t2smc_get_lower_bound(t2, &temp_begin, "T");
-		if (ret) {
-			kfree(t2->cache);
-			t2->cache = NULL;
-			t2->key_count = 0;
-			return ret;
-		}
-		ret = t2smc_get_lower_bound(t2, &temp_end, "U");
-		if (ret) {
-			kfree(t2->cache);
-			t2->cache = NULL;
-			t2->key_count = 0;
-			return ret;
-		}
-
-		t2->temp_count = 0;
-		for (t = temp_begin; t < temp_end; t++) {
-			struct t2smc_entry *entry;
-
-			entry = t2smc_get_entry_by_index(t2, t);
-			if (IS_ERR(entry))
-				continue;
-			if (strcmp(entry->type, TEMP_SENSOR_TYPE))
-				continue;
-			t2->temp_count++;
-		}
-
-		if (t2->temp_count) {
-			unsigned int idx = 0;
-
-			t2->temp_keys = kcalloc(t2->temp_count,
-						sizeof(t2->temp_keys[0]),
-						GFP_KERNEL);
-			if (!t2->temp_keys) {
-				/* Non-fatal: just skip temperatures */
-				t2->temp_count = 0;
-			} else {
-				for (t = temp_begin; t < temp_end; t++) {
-					struct t2smc_entry *entry;
-
-					entry = t2smc_get_entry_by_index(t2, t);
-					if (IS_ERR(entry))
-						continue;
-					if (strcmp(entry->type, TEMP_SENSOR_TYPE))
-						continue;
-					memcpy(t2->temp_keys[idx],
-					       entry->key, 4);
-					t2->temp_keys[idx][4] = '\0';
-					idx++;
-				}
-			}
-		}
-	}
+	/* Sensors by key prefix: Temperature, current (I), voltage, power */
+	ret = t2smc_discover_sensors(t2, "T", "U", &t2->temp);
+	if (ret)
+		return ret;
+	ret = t2smc_discover_sensors(t2, "I", "J", &t2->curr);
+	if (ret)
+		return ret;
+	ret = t2smc_discover_sensors(t2, "V", "W", &t2->in);
+	if (ret)
+		return ret;
+	ret = t2smc_discover_sensors(t2, "P", "Q", &t2->power);
+	if (ret)
+		return ret;
 
 	ret = t2smc_has_key(t2, T2SMC_CHARGE_LIMIT_SW, &t2->has_chls);
 	if (ret)
@@ -713,51 +812,57 @@ static int t2smc_init_keycache(struct t2smc_device *t2)
 	if (ret)
 		return ret;
 
-	dev_info(t2->dev, "initialized: keys=%u fans=%u temps=%u power=%u\n",
-		 t2->key_count, t2->fan_count, t2->temp_count,
-		 t2->power_count);
+	dev_info(t2->dev,
+		 "initialized: keys=%u fans=%u temps=%u currents=%u voltages=%u power=%u\n",
+		 t2->key_count, t2->fan_count, t2->temp.count, t2->curr.count,
+		 t2->in.count, t2->power.count);
 	dev_info(t2->dev,
 		 "charge keys: CHLS=%d CHWA=%d\n", t2->has_chls,
 		 t2->has_chwa);
 	return 0;
 }
 
-static int t2smc_try_enable_iomem(struct t2smc_device *t2)
+static int t2smc_setup_events(struct platform_device *pdev,
+			      struct t2smc_device *t2);
+
+static int t2smc_try_enable_iomem(struct platform_device *pdev,
+				  struct t2smc_device *t2)
 {
 	u8 test_val, ldkn_version;
+	int ret;
 
 	pr_debug("Trying to enable MMIO communication\n");
+	/* Unmapped by t2smc_devm_cleanup after the IRQ is gone */
 	t2->iomem = ioremap(t2->iomem_addr, t2->iomem_size);
 	if (!t2->iomem)
-		goto out;
+		return -ENXIO;
 
 	test_val = ioread8(t2->iomem + T2SMC_IOMEM_KEY_STATUS);
 	if (test_val == 0xff) {
 		dev_warn(t2->dev, "iomem init failed: status=0xff (is %x)\n",
 			 test_val);
-		goto out_unmap;
+		return -ENXIO;
 	}
+
+	/* Every command completes by interrupt, so events come first */
+	ret = t2smc_setup_events(pdev, t2);
+	if (ret)
+		return ret;
 
 	/* Verify communication works by reading LDKN key */
 	if (iomem_read_smc(t2, T2SMC_READ_CMD, "LDKN", &ldkn_version, 1)) {
 		dev_warn(t2->dev, "iomem init failed: LDKN read failed\n");
-		goto out_unmap;
+		return -ENXIO;
 	}
 	if (ldkn_version < 2) {
 		dev_warn(t2->dev, "iomem init failed: LDKN version %u < 2\n",
 			 ldkn_version);
-		goto out_unmap;
+		return -ENXIO;
 	}
 
 	dev_info(t2->dev, "MMIO interface enabled (LDKN v%u)\n", ldkn_version);
 	t2->iomem_ok = true;
 	return 0;
-
-out_unmap:
-	iounmap(t2->iomem);
-	t2->iomem = NULL;
-out:
-	return -ENXIO;
 }
 
 /* -- ACPI resource walk -- */
@@ -766,6 +871,14 @@ static acpi_status t2smc_walk_resources(struct acpi_resource *res, void *data)
 	struct t2smc_device *t2 = data;
 
 	switch (res->type) {
+	case ACPI_RESOURCE_TYPE_IO:
+		if (!t2->has_port &&
+		    res->data.io.address_length >= T2SMC_PORT_MIN_SIZE) {
+			t2->port_base = res->data.io.minimum;
+			t2->has_port = true;
+		}
+		return AE_OK;
+
 	case ACPI_RESOURCE_TYPE_FIXED_MEMORY32:
 		if (!t2->iomem_ok) {
 			if (res->data.fixed_memory32.address_length <
@@ -882,30 +995,55 @@ static int t2smc_write_fan_manual(struct t2smc_device *t2, int fan_idx,
 #define T2SMC_FAN_OPT_SAFE    3
 #define T2SMC_FAN_OPT_TARGET  4
 
+/* Sensor set and scale to hwmon units for a channel type */
+static const struct t2smc_sensors *
+t2smc_sensors_for(struct t2smc_device *t2, enum hwmon_sensor_types type,
+		  long *scale)
+{
+	switch (type) {
+	case hwmon_temp:
+		*scale = 1000;		/* millidegree Celsius */
+		return &t2->temp;
+	case hwmon_curr:
+		*scale = 1000;		/* milliampere */
+		return &t2->curr;
+	case hwmon_in:
+		*scale = 1000;		/* millivolt */
+		return &t2->in;
+	case hwmon_power:
+		*scale = 1000000;	/* microwatt */
+		return &t2->power;
+	default:
+		return NULL;
+	}
+}
+
+static bool t2smc_is_input_attr(enum hwmon_sensor_types type, u32 attr)
+{
+	return (type == hwmon_temp && attr == hwmon_temp_input) ||
+	       (type == hwmon_curr && attr == hwmon_curr_input) ||
+	       (type == hwmon_in && attr == hwmon_in_input) ||
+	       (type == hwmon_power && attr == hwmon_power_input);
+}
+
+static bool t2smc_is_label_attr(enum hwmon_sensor_types type, u32 attr)
+{
+	return (type == hwmon_temp && attr == hwmon_temp_label) ||
+	       (type == hwmon_curr && attr == hwmon_curr_label) ||
+	       (type == hwmon_in && attr == hwmon_in_label) ||
+	       (type == hwmon_power && attr == hwmon_power_label);
+}
+
 static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
 			     u32 attr, int channel, long *val)
 {
 	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	const struct t2smc_sensors *set;
 	unsigned int speed;
+	long scale;
 	int ret;
 
-	switch (type) {
-	case hwmon_temp:
-		if (attr != hwmon_temp_input)
-			return -EOPNOTSUPP;
-		if (channel >= t2->temp_count)
-			return -EINVAL;
-		return t2smc_read_temp(t2, t2->temp_keys[channel], val);
-
-	case hwmon_power:
-		if (attr != hwmon_power_input)
-			return -EOPNOTSUPP;
-		if (channel >= t2->power_count)
-			return -EINVAL;
-		return t2smc_read_scaled(t2, t2->power_keys[channel],
-					 1000000, val);
-
-	case hwmon_fan:
+	if (type == hwmon_fan) {
 		switch (attr) {
 		case hwmon_fan_input:
 			ret = t2smc_read_fan(t2, channel, T2SMC_FAN_OPT_ACTUAL, &speed);
@@ -926,10 +1064,14 @@ static int t2smc_hwmon_read(struct device *dev, enum hwmon_sensor_types type,
 			return ret;
 		*val = (long)speed;
 		return 0;
-
-	default:
-		return -EOPNOTSUPP;
 	}
+
+	set = t2smc_sensors_for(t2, type, &scale);
+	if (!set || !t2smc_is_input_attr(type, attr))
+		return -EOPNOTSUPP;
+	if (channel >= set->count)
+		return -EINVAL;
+	return t2smc_read_scaled(t2, set->keys[channel], scale, val);
 }
 
 static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
@@ -955,7 +1097,13 @@ static int t2smc_hwmon_write(struct device *dev, enum hwmon_sensor_types type,
 			ret = t2smc_write_fan_manual(t2, channel, 1);
 			if (ret)
 				return ret;
-			return t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET, speed);
+			ret = t2smc_write_fan(t2, channel, T2SMC_FAN_OPT_TARGET, speed);
+			if (ret)
+				return ret;
+			/* Remembered to restore manual mode after resume */
+			WRITE_ONCE(t2->fan_target[channel], speed);
+			set_bit(channel, &t2->fan_manual);
+			return 0;
 		default:
 			return -EOPNOTSUPP;
 		}
@@ -971,7 +1119,8 @@ static umode_t t2smc_hwmon_is_visible(const void *drvdata,
 {
 	switch (type) {
 	case hwmon_temp:
-		return 0444;
+	case hwmon_curr:
+	case hwmon_in:
 	case hwmon_power:
 		return 0444;
 	case hwmon_fan:
@@ -993,20 +1142,23 @@ static int t2smc_hwmon_read_string(struct device *dev,
 				   int channel, const char **str)
 {
 	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	const struct t2smc_sensors *set;
+	long scale;
 
-	if (type == hwmon_temp && attr == hwmon_temp_label) {
-		if (channel >= t2->temp_count)
+	if (type == hwmon_fan && attr == hwmon_fan_label) {
+		if (channel >= t2->fan_count)
 			return -EINVAL;
-		*str = t2->temp_keys[channel];
+		*str = t2->fan_labels[channel];
 		return 0;
 	}
-	if (type == hwmon_power && attr == hwmon_power_label) {
-		if (channel >= t2->power_count)
-			return -EINVAL;
-		*str = t2->power_keys[channel];
-		return 0;
-	}
-	return -EOPNOTSUPP;
+
+	set = t2smc_sensors_for(t2, type, &scale);
+	if (!set || !t2smc_is_label_attr(type, attr))
+		return -EOPNOTSUPP;
+	if (channel >= set->count)
+		return -EINVAL;
+	*str = set->keys[channel];
+	return 0;
 }
 
 
@@ -1222,6 +1374,11 @@ enum t2smc_power_attr {
 	T2SMC_POWER_ADAPTER_VOLTAGE,
 	T2SMC_POWER_ADAPTER_CURRENT,
 	T2SMC_POWER_ADAPTER_POWER,
+	T2SMC_POWER_TIME_TO_EMPTY,
+	T2SMC_POWER_TIME_TO_FULL,
+	T2SMC_POWER_CHARGE_CURRENT,
+	T2SMC_POWER_CHARGE_VOLTAGE,
+	T2SMC_POWER_CELL_VOLTAGE_MAX,
 };
 
 static ssize_t t2smc_power_show(struct device *dev,
@@ -1261,6 +1418,8 @@ static ssize_t t2smc_power_show(struct device *dev,
 		break;
 	case T2SMC_POWER_BATTERY_POWER:
 		ret = t2smc_read_scaled(t2, T2SMC_BATTERY_POWER, 1000000, &val);
+		/* B0AP is positive while discharging, B0AC while charging */
+		val = -val;
 		break;
 	case T2SMC_POWER_CHARGE_FULL:
 		ret = t2smc_read_be16(t2, T2SMC_BATTERY_FULL, &value16);
@@ -1287,6 +1446,25 @@ static ssize_t t2smc_power_show(struct device *dev,
 						     T2SMC_ADAPTER_POWER_OLD)) ?
 			T2SMC_ADAPTER_POWER_OLD : T2SMC_ADAPTER_POWER;
 		ret = t2smc_read_scaled(t2, key, 1000000, &val);
+		break;
+	case T2SMC_POWER_TIME_TO_EMPTY:
+	case T2SMC_POWER_TIME_TO_FULL:
+		key = sattr->index == T2SMC_POWER_TIME_TO_EMPTY ?
+			T2SMC_BATTERY_TIME_TO_EMPTY : T2SMC_BATTERY_TIME_TO_FULL;
+		ret = t2smc_read_be16(t2, key, &value16);
+		/* Minutes, 0xffff while not (dis)charging */
+		if (!ret && value16 == 0xffff)
+			return -ENODATA;
+		val = (long)value16 * 60;
+		break;
+	case T2SMC_POWER_CHARGE_CURRENT:
+		ret = t2smc_read_scaled(t2, T2SMC_CHARGE_CURRENT, 1000, &val);
+		break;
+	case T2SMC_POWER_CHARGE_VOLTAGE:
+		ret = t2smc_read_scaled(t2, T2SMC_CHARGE_VOLTAGE, 1000, &val);
+		break;
+	case T2SMC_POWER_CELL_VOLTAGE_MAX:
+		ret = t2smc_read_scaled(t2, T2SMC_CELL_VOLTAGE_MAX, 1000, &val);
 		break;
 	default:
 		return -EINVAL;
@@ -1323,6 +1501,16 @@ static SENSOR_DEVICE_ATTR_RO(smc_adapter_current_ua, t2smc_power,
 			     T2SMC_POWER_ADAPTER_CURRENT);
 static SENSOR_DEVICE_ATTR_RO(smc_adapter_power_uw, t2smc_power,
 			     T2SMC_POWER_ADAPTER_POWER);
+static SENSOR_DEVICE_ATTR_RO(smc_battery_time_to_empty_s, t2smc_power,
+			     T2SMC_POWER_TIME_TO_EMPTY);
+static SENSOR_DEVICE_ATTR_RO(smc_battery_time_to_full_s, t2smc_power,
+			     T2SMC_POWER_TIME_TO_FULL);
+static SENSOR_DEVICE_ATTR_RO(smc_battery_charge_current_ua, t2smc_power,
+			     T2SMC_POWER_CHARGE_CURRENT);
+static SENSOR_DEVICE_ATTR_RO(smc_battery_charge_voltage_uv, t2smc_power,
+			     T2SMC_POWER_CHARGE_VOLTAGE);
+static SENSOR_DEVICE_ATTR_RO(smc_battery_cell_voltage_max_uv, t2smc_power,
+			     T2SMC_POWER_CELL_VOLTAGE_MAX);
 
 static struct attribute *t2smc_power_attrs[] = {
 	&sensor_dev_attr_power_event_count.dev_attr.attr,
@@ -1338,6 +1526,11 @@ static struct attribute *t2smc_power_attrs[] = {
 	&sensor_dev_attr_smc_adapter_voltage_uv.dev_attr.attr,
 	&sensor_dev_attr_smc_adapter_current_ua.dev_attr.attr,
 	&sensor_dev_attr_smc_adapter_power_uw.dev_attr.attr,
+	&sensor_dev_attr_smc_battery_time_to_empty_s.dev_attr.attr,
+	&sensor_dev_attr_smc_battery_time_to_full_s.dev_attr.attr,
+	&sensor_dev_attr_smc_battery_charge_current_ua.dev_attr.attr,
+	&sensor_dev_attr_smc_battery_charge_voltage_uv.dev_attr.attr,
+	&sensor_dev_attr_smc_battery_cell_voltage_max_uv.dev_attr.attr,
 	NULL,
 };
 
@@ -1345,9 +1538,42 @@ static const struct attribute_group t2smc_power_group = {
 	.attrs = t2smc_power_attrs,
 };
 
+/* Thermal levels the SMC publishes in its I/O window, see event 0x54 */
+static ssize_t t2smc_thermal_level_show(struct device *dev,
+					struct device_attribute *attr,
+					char *buf)
+{
+	struct sensor_device_attribute *sattr = to_sensor_dev_attr(attr);
+	struct t2smc_device *t2 = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%u\n", inb(t2->port_base + sattr->index));
+}
+
+static SENSOR_DEVICE_ATTR(smc_thermal_level_cpu, 0444,
+			  t2smc_thermal_level_show, NULL,
+			  T2SMC_PORT_THERMAL_CPU);
+static SENSOR_DEVICE_ATTR(smc_thermal_level_io, 0444,
+			  t2smc_thermal_level_show, NULL,
+			  T2SMC_PORT_THERMAL_IO);
+static SENSOR_DEVICE_ATTR(smc_thermal_level_gpu, 0444,
+			  t2smc_thermal_level_show, NULL,
+			  T2SMC_PORT_THERMAL_GPU);
+
+static struct attribute *t2smc_thermal_attrs[] = {
+	&sensor_dev_attr_smc_thermal_level_cpu.dev_attr.attr,
+	&sensor_dev_attr_smc_thermal_level_io.dev_attr.attr,
+	&sensor_dev_attr_smc_thermal_level_gpu.dev_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group t2smc_thermal_group = {
+	.attrs = t2smc_thermal_attrs,
+};
+
 static const struct attribute_group *t2smc_hwmon_groups[] = {
 	&t2smc_bclm_group,
 	&t2smc_power_group,
+	&t2smc_thermal_group,
 	NULL,
 };
 
@@ -1630,81 +1856,103 @@ static int t2smc_register_rtc(struct t2smc_device *t2)
 	return 0;
 }
 
-#define MAX_FANS 10
+/* FnID holds the fan name after a four byte header */
+static void t2smc_read_fan_labels(struct t2smc_device *t2)
+{
+	struct t2smc_entry *entry;
+	char key[5];
+	u8 buf[4 + T2SMC_FAN_LABEL_LEN];
+	size_t len;
+	int i;
 
-/* Register hwmon device with fan, temp channels and BCLM extra group */
+	for (i = 0; i < t2->fan_count; i++) {
+		scnprintf(key, sizeof(key), "F%dID", i);
+		entry = t2smc_get_entry_by_key(t2, key);
+		if (IS_ERR(entry) || entry->len != sizeof(buf) ||
+		    t2smc_read_key(t2, key, buf, sizeof(buf)))
+			continue;
+		memcpy(t2->fan_labels[i], buf + 4, T2SMC_FAN_LABEL_LEN);
+		t2->fan_labels[i][T2SMC_FAN_LABEL_LEN] = '\0';
+		len = strlen(t2->fan_labels[i]);
+		while (len && isspace(t2->fan_labels[i][len - 1]))
+			t2->fan_labels[i][--len] = '\0';
+	}
+}
+
+static struct hwmon_channel_info *
+t2smc_channel_info(struct device *dev, enum hwmon_sensor_types type,
+		   unsigned int count, u32 config)
+{
+	struct hwmon_channel_info *info;
+	u32 *channel_config;
+	int i;
+
+	info = devm_kzalloc(dev, sizeof(*info), GFP_KERNEL);
+	channel_config = devm_kcalloc(dev, count + 1, sizeof(u32), GFP_KERNEL);
+	if (!info || !channel_config)
+		return NULL;
+
+	for (i = 0; i < count; i++)
+		channel_config[i] = config;
+	info->type = type;
+	info->config = channel_config;
+	return info;
+}
+
+/* Register hwmon device with fan and sensor channels and the extra groups */
 static int t2smc_register_hwmon(struct t2smc_device *t2)
 {
+	const struct {
+		enum hwmon_sensor_types type;
+		const struct t2smc_sensors *set;
+		u32 config;
+	} sensors[] = {
+		{ hwmon_temp, &t2->temp, HWMON_T_INPUT | HWMON_T_LABEL },
+		{ hwmon_curr, &t2->curr, HWMON_C_INPUT | HWMON_C_LABEL },
+		{ hwmon_in, &t2->in, HWMON_I_INPUT | HWMON_I_LABEL },
+		{ hwmon_power, &t2->power, HWMON_P_INPUT | HWMON_P_LABEL },
+	};
 	struct device *dev = t2->dev;
 	struct device *hwmon_dev;
+	const struct hwmon_channel_info **info;
 	struct hwmon_channel_info *fan_info;
 	struct hwmon_chip_info *chip_info;
 	u32 *fan_config;
-	int i;
+	int i, idx = 0;
+
+	t2smc_read_fan_labels(t2);
 
 	fan_config = devm_kcalloc(dev, t2->fan_count + 1, sizeof(u32), GFP_KERNEL);
 	fan_info  = devm_kzalloc(dev, sizeof(*fan_info), GFP_KERNEL);
 	chip_info = devm_kzalloc(dev, sizeof(*chip_info), GFP_KERNEL);
-	if (!fan_config || !fan_info || !chip_info)
+	/* fan + sensor types + sentinel */
+	info = devm_kcalloc(dev, ARRAY_SIZE(sensors) + 2, sizeof(*info),
+			    GFP_KERNEL);
+	if (!fan_config || !fan_info || !chip_info || !info)
 		return -ENOMEM;
 
-	for (i = 0; i < t2->fan_count; i++)
+	for (i = 0; i < t2->fan_count; i++) {
 		fan_config[i] = HWMON_F_INPUT | HWMON_F_MIN |
 				HWMON_F_MAX | HWMON_F_TARGET;
-
+		if (t2->fan_labels[i][0])
+			fan_config[i] |= HWMON_F_LABEL;
+	}
 	fan_info->type   = hwmon_fan;
 	fan_info->config = fan_config;
+	info[idx++] = fan_info;
 
-	/* Build info array: fan + optional temp/power, terminated by NULL */
-	{
-		struct hwmon_channel_info *temp_info = NULL;
-		struct hwmon_channel_info *power_info = NULL;
-		const struct hwmon_channel_info **info;
-		u32 *temp_config;
-		u32 *power_config;
-		int nchans = 2; /* fan + sentinel */
-		int idx = 0;
-
-		if (t2->temp_count) {
-			nchans++;
-			temp_config = devm_kcalloc(dev, t2->temp_count + 1,
-						   sizeof(u32), GFP_KERNEL);
-			temp_info   = devm_kzalloc(dev, sizeof(*temp_info),
-						   GFP_KERNEL);
-			if (!temp_config || !temp_info)
-				return -ENOMEM;
-			for (i = 0; i < t2->temp_count; i++)
-				temp_config[i] = HWMON_T_INPUT | HWMON_T_LABEL;
-			temp_info->type   = hwmon_temp;
-			temp_info->config = temp_config;
-		}
-
-		if (t2->power_count) {
-			nchans++;
-			power_config = devm_kcalloc(dev, t2->power_count + 1,
-						    sizeof(u32), GFP_KERNEL);
-			power_info = devm_kzalloc(dev, sizeof(*power_info),
-						   GFP_KERNEL);
-			if (!power_config || !power_info)
-				return -ENOMEM;
-			for (i = 0; i < t2->power_count; i++)
-				power_config[i] = HWMON_P_INPUT | HWMON_P_LABEL;
-			power_info->type = hwmon_power;
-			power_info->config = power_config;
-		}
-
-		info = devm_kcalloc(dev, nchans, sizeof(*info), GFP_KERNEL);
-		if (!info)
+	for (i = 0; i < ARRAY_SIZE(sensors); i++) {
+		if (!sensors[i].set->count)
+			continue;
+		info[idx] = t2smc_channel_info(dev, sensors[i].type,
+					       sensors[i].set->count,
+					       sensors[i].config);
+		if (!info[idx++])
 			return -ENOMEM;
-		info[idx++] = fan_info;
-		if (temp_info)
-			info[idx++] = temp_info;
-		if (power_info)
-			info[idx++] = power_info;
-		info[idx] = NULL;
-		chip_info->info = info;
 	}
+	info[idx] = NULL;
 
+	chip_info->info = info;
 	chip_info->ops = &t2smc_hwmon_ops;
 
 	hwmon_dev = devm_hwmon_device_register_with_info(dev, "t2smc", t2,
@@ -1714,6 +1962,260 @@ static int t2smc_register_hwmon(struct t2smc_device *t2)
 		return PTR_ERR(hwmon_dev);
 	t2->hwmon_dev = hwmon_dev;
 
+	return 0;
+}
+
+/* Re-enter manual mode for fans that had a target set before suspend */
+static void t2smc_restore_fans(struct t2smc_device *t2)
+{
+	int i, ret;
+
+	for_each_set_bit(i, &t2->fan_manual, t2->fan_count) {
+		ret = t2smc_write_fan_manual(t2, i, 1);
+		if (!ret)
+			ret = t2smc_write_fan(t2, i, T2SMC_FAN_OPT_TARGET,
+					      READ_ONCE(t2->fan_target[i]));
+		if (ret) {
+			dev_warn(t2->dev, "fan %d: failed to restore manual mode: %d\n",
+				 i, ret);
+			clear_bit(i, &t2->fan_manual);
+		}
+	}
+}
+
+/* -- Watchdog (OSWD, or NATi/NATJ on older firmware) -- */
+static int t2smc_wdt_ping(struct watchdog_device *wdd)
+{
+	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
+
+	return t2smc_write_uint(t2, t2->has_oswd ? T2SMC_WDT_TIMER :
+				T2SMC_WDT_LEGACY_TIMER, wdd->timeout);
+}
+
+static int t2smc_wdt_start(struct watchdog_device *wdd)
+{
+	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
+	int ret;
+
+	ret = t2smc_wdt_ping(wdd);
+	if (ret || t2->has_oswd)
+		return ret;
+	/* NATJ selects what happens when NATi expires, 2 forces a restart */
+	return t2smc_write_uint(t2, T2SMC_WDT_LEGACY_MODE,
+				T2SMC_WDT_LEGACY_RESTART);
+}
+
+static int t2smc_wdt_stop(struct watchdog_device *wdd)
+{
+	struct t2smc_device *t2 = watchdog_get_drvdata(wdd);
+	int ret;
+
+	if (t2->has_oswd)
+		return t2smc_write_uint(t2, T2SMC_WDT_TIMER, 0);
+
+	ret = t2smc_write_uint(t2, T2SMC_WDT_LEGACY_MODE, 0);
+	if (ret)
+		return ret;
+	return t2smc_write_uint(t2, T2SMC_WDT_LEGACY_TIMER, 0);
+}
+
+static int t2smc_wdt_set_timeout(struct watchdog_device *wdd,
+				 unsigned int timeout)
+{
+	wdd->timeout = timeout;
+	if (watchdog_active(wdd))
+		return t2smc_wdt_ping(wdd);
+	return 0;
+}
+
+static const struct watchdog_ops t2smc_wdt_ops = {
+	.owner       = THIS_MODULE,
+	.start       = t2smc_wdt_start,
+	.stop        = t2smc_wdt_stop,
+	.ping        = t2smc_wdt_ping,
+	.set_timeout = t2smc_wdt_set_timeout,
+};
+
+static const struct watchdog_info t2smc_wdt_info = {
+	.options  = WDIOF_SETTIMEOUT | WDIOF_KEEPALIVEPING | WDIOF_MAGICCLOSE,
+	.identity = "t2smc watchdog",
+};
+
+static int t2smc_register_watchdog(struct t2smc_device *t2)
+{
+	struct watchdog_device *wdd = &t2->wdd;
+	bool has_timer, has_mode;
+	int ret;
+
+	ret = t2smc_has_key(t2, T2SMC_WDT_TIMER, &t2->has_oswd);
+	if (ret)
+		return ret;
+	if (!t2->has_oswd) {
+		ret = t2smc_has_key(t2, T2SMC_WDT_LEGACY_TIMER, &has_timer);
+		if (ret)
+			return ret;
+		ret = t2smc_has_key(t2, T2SMC_WDT_LEGACY_MODE, &has_mode);
+		if (ret)
+			return ret;
+		if (!has_timer || !has_mode) {
+			dev_info(t2->dev, "watchdog keys not present, skipping watchdog\n");
+			return 0;
+		}
+	}
+
+	wdd->info = &t2smc_wdt_info;
+	wdd->ops = &t2smc_wdt_ops;
+	wdd->parent = t2->dev;
+	wdd->min_timeout = 1;
+	wdd->max_timeout = T2SMC_WDT_MAX_TIMEOUT;
+	wdd->timeout = T2SMC_WDT_DEFAULT_TIMEOUT;
+	watchdog_init_timeout(wdd, wdt_timeout, t2->dev);
+	watchdog_set_nowayout(wdd, nowayout);
+	watchdog_stop_on_reboot(wdd);
+	watchdog_stop_on_unregister(wdd);
+	watchdog_set_drvdata(wdd, t2);
+
+	ret = devm_watchdog_register_device(t2->dev, wdd);
+	if (ret)
+		return ret;
+	t2->has_wdt = true;
+
+	dev_info(t2->dev, "watchdog registered (%s, timeout=%us)\n",
+		 t2->has_oswd ? "OSWD" : "NATi/NATJ", wdd->timeout);
+	return 0;
+}
+
+/* -- SMC event interrupt -- */
+/*
+ * macOS answers ShutdownImminent with EmergencyHeadPark on every AHCI and
+ * NVMe disk, which makes NVMe flush and prepare for abrupt power loss. The
+ * closest Linux equivalent is a full sync including block device flushes.
+ */
+static void t2smc_sync_work(struct work_struct *work)
+{
+	ksys_sync_helper();
+}
+
+/* AppleSMC copies the text and prints it as "Log: %s" */
+static void t2smc_log_message(struct t2smc_device *t2)
+{
+	char msg[T2SMC_LOG_LEN + 1];
+	int i;
+
+	memcpy_fromio(msg, t2->iomem + T2SMC_IOMEM_LOG, T2SMC_LOG_LEN);
+	msg[T2SMC_LOG_LEN] = '\0';
+	for (i = 0; msg[i]; i++)
+		if (!isprint(msg[i]))
+			msg[i] = ' ';
+	dev_info_ratelimited(t2->dev, "SMC log: %s\n", strim(msg));
+}
+
+static irqreturn_t t2smc_irq(int irq, void *data)
+{
+	struct t2smc_device *t2 = data;
+	u8 event;
+
+	if (!(ioread8(t2->iomem + T2SMC_IOMEM_INT_STATUS) & 0x20))
+		return IRQ_HANDLED;
+
+	event = inb(t2->port_base + T2SMC_PORT_EVENT);
+	switch (event) {
+	case T2SMC_EVENT_KEY_DONE:
+		complete(&t2->cmd_done);
+		break;
+	case T2SMC_EVENT_SHUTDOWN:
+		dev_crit(t2->dev, "SMC reports imminent power loss, syncing storage\n");
+		queue_work(system_highpri_wq, &t2->sync_work);
+		break;
+	case T2SMC_EVENT_BRIDGEOS_PANIC:
+		dev_warn(t2->dev, "SMC reports a BridgeOS panic\n");
+		break;
+	/* Under load the SMC reports level changes about once per second */
+	case T2SMC_EVENT_THERMAL_LEVEL:
+		dev_dbg(t2->dev, "SMC thermal level changed\n");
+		break;
+	/* Sent once right after NTOK is set */
+	case T2SMC_EVENT_THERMAL_CONFIG:
+		dev_dbg(t2->dev, "SMC thermal configuration changed\n");
+		break;
+	case T2SMC_EVENT_LOG:
+		t2smc_log_message(t2);
+		break;
+	case T2SMC_EVENT_PLIMIT:
+		dev_dbg(t2->dev, "SMC power limit changed\n");
+		break;
+	default:
+		dev_dbg(t2->dev, "SMC event 0x%02x\n", event);
+		break;
+	}
+
+	return IRQ_HANDLED;
+}
+
+/*
+ * NTOK switches event interrupts on and off. Setting it already raises
+ * KeyDone for the write itself, so it needs no key cache and no polling.
+ */
+static int t2smc_set_notifications(struct t2smc_device *t2, bool enable)
+{
+	u8 val = enable;
+	int ret;
+
+	mutex_lock(&t2->mutex);
+	ret = write_smc(t2, T2SMC_NOTIFY, &val, 1);
+	mutex_unlock(&t2->mutex);
+	return ret;
+}
+
+static void t2smc_disable_events(void *data)
+{
+	t2smc_set_notifications(data, false);
+}
+
+static void t2smc_cancel_sync_work(void *data)
+{
+	struct t2smc_device *t2 = data;
+
+	cancel_work_sync(&t2->sync_work);
+}
+
+/* SMC commands complete by interrupt, so the driver cannot work without it */
+static int t2smc_setup_events(struct platform_device *pdev,
+			      struct t2smc_device *t2)
+{
+	int irq, ret;
+
+	if (!t2->has_port)
+		return dev_err_probe(t2->dev, -ENODEV,
+				     "no SMC I/O port window for events\n");
+
+	irq = platform_get_irq(pdev, 0);
+	if (irq < 0)
+		return dev_err_probe(t2->dev, irq, "no SMC interrupt\n");
+
+	if (!devm_request_region(t2->dev, t2->port_base, T2SMC_PORT_MIN_SIZE,
+				 "t2smc"))
+		return dev_err_probe(t2->dev, -EBUSY, "I/O ports 0x%x busy\n",
+				     t2->port_base);
+
+	ret = devm_add_action_or_reset(t2->dev, t2smc_cancel_sync_work, t2);
+	if (ret)
+		return ret;
+
+	ret = devm_request_irq(t2->dev, irq, t2smc_irq, 0, "t2smc", t2);
+	if (ret)
+		return dev_err_probe(t2->dev, ret, "failed to request IRQ %d\n",
+				     irq);
+
+	ret = t2smc_set_notifications(t2, true);
+	if (ret)
+		return dev_err_probe(t2->dev, ret, "failed to enable SMC events\n");
+
+	ret = devm_add_action_or_reset(t2->dev, t2smc_disable_events, t2);
+	if (ret)
+		return ret;
+
+	dev_info(t2->dev, "SMC events enabled (IRQ %d)\n", irq);
 	return 0;
 }
 
@@ -1727,8 +2229,7 @@ static void t2smc_devm_cleanup(void *data)
 	mutex_destroy(&t2->mutex);
 	mutex_destroy(&t2->battery_lock);
 	kfree(t2->cache);
-	kfree(t2->temp_keys);
-	kfree(t2->power_keys);
+	t2smc_free_sensors(t2);
 }
 
 static void t2smc_unregister_power_notifier(void *data)
@@ -1740,6 +2241,93 @@ static void t2smc_unregister_power_notifier(void *data)
 		t2->power_notifier_registered = false;
 	}
 	cancel_work_sync(&t2->power_event_work);
+}
+
+/*
+ * Apple names causes in its PowerManagement sources (common/CommonLib.c,
+ * PowerManagement-1846), which pmconfigd logs as "SMC shutdown cause".
+ * The community entries come from the Eclectic Light Company and George
+ * Garside lists. Only causes on which those lists agree, or that only one
+ * of them names, are included, and Apple wins every conflict. They are
+ * marked so that each one can be confirmed or refuted on real hardware.
+ */
+static const struct {
+	s8 cause;
+	bool apple;
+	const char *desc;
+} t2smc_shutdown_causes[] = {
+	{    0, true,  "Battery disconnected" },
+	{    1, true,  "Normal warm reset" },
+	{    2, true,  "Power supply disconnected" },
+	{    3, true,  "Power button pressed for > 4 sec" },
+	{    5, true,  "Software initiated shutdown" },
+	{    7, true,  "Normal shutdown by SOC" },
+	{   -3, false, "Multiple temperature sensors too high" },
+	{  -14, false, "Electricity spike or surge" },
+	{  -20, false, "BridgeOS (T2) initiated shutdown" },
+	{  -60, true,  "Battery fully drained" },
+	{  -61, false, "Watchdog detected unresponsive app, shutting down" },
+	{  -62, false, "Watchdog detected unresponsive app, restarting" },
+	{  -64, false, "Kernel panic" },
+	{  -71, false, "Memory temperature too high" },
+	{  -74, false, "Battery temperature too high" },
+	{  -75, false, "Power adapter communication problem" },
+	{  -78, false, "Incorrect input current from power adapter" },
+	{  -79, false, "Incorrect current from battery" },
+	{  -81, true,  "Thermal shutdown for overtemp" },
+	{  -86, false, "Proximity temperature too high" },
+	{ -100, false, "Power supply temperature too high" },
+	{ -101, false, "Display temperature too high" },
+	{ -102, false, "Overvoltage" },
+	{ -103, false, "Battery voltage too low" },
+	{ -104, false, "Unknown battery fault" },
+	{ -127, false, "PMU/SMC forced shutdown for another cause" },
+};
+
+/*
+ * Log the cause of the previous shutdown like macOS does at boot ("Previous
+ * shutdown cause: %d"). The writes mirror AppleSMC::smcPublishShutdownCause
+ * so that a one-shot cause is not reported again on the next boot.
+ */
+static void t2smc_log_shutdown_cause(struct t2smc_device *t2)
+{
+	u8 cause, flag = 0, val = 0;
+	bool has_flag, has_cause;
+	int i;
+
+	if (t2smc_has_key(t2, T2SMC_SHUTDOWN_CAUSE, &has_cause) || !has_cause)
+		return;
+	if (t2smc_has_key(t2, T2SMC_SHUTDOWN_FLAG, &has_flag))
+		return;
+	if (has_flag && t2smc_read_key(t2, T2SMC_SHUTDOWN_FLAG, &flag, 1))
+		flag = 0;
+
+	if (t2smc_read_key(t2, T2SMC_SHUTDOWN_CAUSE, &cause, 1)) {
+		dev_warn(t2->dev, "failed to read the previous shutdown cause\n");
+		return;
+	}
+
+	if (has_flag && cause == T2SMC_CAUSE_FLAGGED) {
+		if (flag != 1)
+			cause = T2SMC_CAUSE_RESET;
+		else if (t2smc_write_key(t2, T2SMC_SHUTDOWN_FLAG, &val, 1))
+			dev_warn(t2->dev, "failed to clear MSSW\n");
+	} else if (!has_flag && cause == T2SMC_CAUSE_ONE_SHOT) {
+		val = T2SMC_CAUSE_RESET;
+		if (t2smc_write_key(t2, T2SMC_SHUTDOWN_CAUSE, &val, 1))
+			dev_warn(t2->dev, "failed to reset MSSD\n");
+	}
+
+	for (i = 0; i < ARRAY_SIZE(t2smc_shutdown_causes); i++)
+		if (t2smc_shutdown_causes[i].cause == (s8)cause)
+			break;
+	if (i == ARRAY_SIZE(t2smc_shutdown_causes))
+		dev_info(t2->dev, "previous shutdown cause: %d (unknown)\n",
+			 (s8)cause);
+	else
+		dev_info(t2->dev, "previous shutdown cause: %d (%s, %s)\n",
+			 (s8)cause, t2smc_shutdown_causes[i].desc,
+			 t2smc_shutdown_causes[i].apple ? "Apple" : "community");
 }
 
 /* -- Platform driver callbacks -- */
@@ -1761,6 +2349,8 @@ static int t2smc_probe(struct platform_device *pdev)
 	mutex_init(&t2->mutex);
 	mutex_init(&t2->battery_lock);
 	INIT_WORK(&t2->power_event_work, t2smc_power_event_work);
+	INIT_WORK(&t2->sync_work, t2smc_sync_work);
+	init_completion(&t2->cmd_done);
 	atomic64_set(&t2->power_event_count, 0);
 	t2->power_supply_nb.notifier_call = t2smc_power_supply_event;
 	platform_set_drvdata(pdev, t2);
@@ -1783,7 +2373,7 @@ static int t2smc_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	ret = t2smc_try_enable_iomem(t2);
+	ret = t2smc_try_enable_iomem(pdev, t2);
 	if (ret)
 		return ret;
 
@@ -1794,12 +2384,8 @@ static int t2smc_probe(struct platform_device *pdev)
 			/* Free old cache from previous failed attempt */
 			kfree(t2->cache);
 			t2->cache = NULL;
-			kfree(t2->temp_keys);
-			t2->temp_keys = NULL;
-			kfree(t2->power_keys);
-			t2->power_keys = NULL;
+			t2smc_free_sensors(t2);
 			t2->key_count = 0;
-			t2->power_count = 0;
 
 			ret = t2smc_init_keycache(t2);
 			if (!ret) {
@@ -1818,6 +2404,8 @@ static int t2smc_probe(struct platform_device *pdev)
 		}
 	}
 
+	t2smc_log_shutdown_cause(t2);
+
 	ret = t2smc_register_hwmon(t2);
 	if (ret)
 		return ret;
@@ -1828,6 +2416,10 @@ static int t2smc_probe(struct platform_device *pdev)
 	t2smc_attach_battery(t2);
 
 	ret = t2smc_register_rtc(t2);
+	if (ret)
+		return ret;
+
+	ret = t2smc_register_watchdog(t2);
 	if (ret)
 		return ret;
 
@@ -1858,11 +2450,41 @@ MODULE_DEVICE_TABLE(acpi, t2smc_ids);
 
 static int t2smc_suspend(struct device *dev)
 {
-	t2smc_rtc_sync_from_system(dev_get_drvdata(dev));
+	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	int ret;
+
+	t2smc_rtc_sync_from_system(t2);
+
+	/* The SMC keeps counting while the host sleeps */
+	if (t2->has_wdt && watchdog_active(&t2->wdd)) {
+		ret = t2smc_wdt_stop(&t2->wdd);
+		if (ret)
+			return ret;
+		t2->wdt_suspended = true;
+	}
 	return 0;
 }
 
-static DEFINE_SIMPLE_DEV_PM_OPS(t2smc_pm_ops, t2smc_suspend, NULL);
+static int t2smc_resume(struct device *dev)
+{
+	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	int ret;
+
+	/* The SMC may have dropped NTOK while the host slept */
+	ret = t2smc_set_notifications(t2, true);
+	if (ret)
+		dev_warn(dev, "failed to re-enable SMC events: %d\n", ret);
+
+	t2smc_restore_fans(t2);
+
+	if (t2->wdt_suspended) {
+		t2->wdt_suspended = false;
+		return t2smc_wdt_start(&t2->wdd);
+	}
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(t2smc_pm_ops, t2smc_suspend, t2smc_resume);
 
 static void t2smc_shutdown(struct platform_device *pdev)
 {
