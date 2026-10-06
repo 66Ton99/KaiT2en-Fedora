@@ -31,10 +31,10 @@ Signed-off-by: Andre Eikmeyer <dev@deq.rocks>
 ---
  drivers/gpu/drm/amd/amdgpu/amdgpu.h               |  2 +
  drivers/gpu/drm/amd/amdgpu/amdgpu_device.c        | 57 +++++++++++++++++++---
- drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c           | 37 +++++++++++-------
+ drivers/gpu/drm/amd/amdgpu/amdgpu_drv.c           | 31 ++++++++++------
  drivers/gpu/drm/amd/display/amdgpu_dm/amdgpu_dm.c | 12 ++++++
  drivers/gpu/drm/amd/pm/inc/amdgpu_dpm.h           |  1 +
- 5 files changed, 91 insertions(+), 20 deletions(-)
+ 5 files changed, 88 insertions(+), 17 deletions(-)
 
 diff --git a/drivers/gpu/drm/amd/amdgpu/amdgpu.h b/drivers/gpu/drm/amd/amdgpu/amdgpu.h
 index 7b09410..cc2e2e2 100644
@@ -194,7 +194,7 @@ index 4c0c77e..603ff39 100644
  		return 1;
  
  	/* if we will not support s3 or s2i for the device
-@@ -2860,35 +2863,40 @@ static int amdgpu_pmops_runtime_suspend(struct device *dev)
+@@ -2860,35 +2863,37 @@ static int amdgpu_pmops_runtime_suspend(struct device *dev)
  	}
  
  	adev->in_runpm = true;
@@ -209,9 +209,7 @@ index 4c0c77e..603ff39 100644
  	 * platforms.
  	 * TODO: this may be also needed for PX capable platform.
  	 */
--	if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO)
-+	if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO ||
-+	    adev->pm.rpm_mode == AMDGPU_RUNPM_GMUX)
+ 	if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO)
  		adev->mp1_state = PP_MP1_STATE_UNLOAD;
  
  	ret = amdgpu_device_prepare(drm_dev);
@@ -220,16 +218,12 @@ index 4c0c77e..603ff39 100644
  	ret = amdgpu_device_suspend(drm_dev, false);
  	if (ret) {
  		adev->in_runpm = false;
--		if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO)
-+		if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO ||
-+		    adev->pm.rpm_mode == AMDGPU_RUNPM_GMUX)
+ 		if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO)
  			adev->mp1_state = PP_MP1_STATE_NONE;
  		return ret;
  	}
  
--	if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO)
-+	if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO ||
-+	    adev->pm.rpm_mode == AMDGPU_RUNPM_GMUX)
+ 	if (adev->pm.rpm_mode == AMDGPU_RUNPM_BOCO)
  		adev->mp1_state = PP_MP1_STATE_NONE;
  
 -	if (adev->pm.rpm_mode == AMDGPU_RUNPM_PX) {
@@ -240,7 +234,7 @@ index 4c0c77e..603ff39 100644
  		 * PCI core handles it for _PR3.
  		 */
  		amdgpu_device_cache_pci_state(pdev);
-@@ -2922,10 +2930,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
+@@ -2922,10 +2927,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
  	if (!pci_device_is_present(adev->pdev))
  		adev->no_hw_access = true;
  
@@ -256,7 +250,7 @@ index 4c0c77e..603ff39 100644
  		 * PCI core handles it for _PR3.
  		 */
  		pci_set_power_state(pdev, PCI_D0);
-@@ -2945,10 +2955,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
+@@ -2945,10 +2952,12 @@ static int amdgpu_pmops_runtime_resume(struct device *dev)
  	}
  	ret = amdgpu_device_resume(drm_dev, false);
  	if (ret) {
