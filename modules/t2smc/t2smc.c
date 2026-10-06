@@ -3,6 +3,9 @@
  * t2smc - Minimal SMC driver for T2 Macs
  *
  * Copyright (C) 2026 André Eikmeyer <andre.eikmeyer@kait2en.org>
+ *
+ * Some Code taken from macsmc.c:
+ * Copyright (C) 2026 Atharva Tiwari <atharvatiwarilinuxdev@gmail.com>
  */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
