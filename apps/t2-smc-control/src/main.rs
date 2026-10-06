@@ -462,52 +462,45 @@ fn read_charge_limit(hwmon: &Path) -> Option<u8> {
         .ok()
 }
 
-/// Thermal pressure the SMC reports for one domain. The driver reads it from
-/// the SMC I/O window that AppleSMC hands to the platform plugin for
-/// throttling. About 4 at idle and 100 at the thermal limit, it can exceed 100.
-struct ThermalPressure {
-    attribute: &'static str,
-    value: gtk4::Label,
-    meter: gtk4::ProgressBar,
+/// One row of the Thermals list. `id` keys the row, `key` is what the key
+/// column shows.
+struct ThermalRow {
+    name: String,
+    key: String,
+    id: String,
+    value: String,
 }
 
-impl ThermalPressure {
-    fn new(name: &str, attribute: &'static str) -> (Self, gtk4::Box) {
-        let title = gtk4::Label::new(Some(name));
-        title.set_halign(gtk4::Align::Start);
-        title.set_xalign(0.0);
-        title.set_hexpand(true);
-        let value = gtk4::Label::new(Some("--"));
-        value.add_css_class("numeric");
-        let header = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-        header.append(&title);
-        header.append(&value);
+/// SMC thermal levels as t2smc reads them from the SMC I/O window, shown as
+/// raw numbers since their scale is not known.
+fn read_thermal_levels(hwmon: &Path) -> Vec<ThermalRow> {
+    [
+        ("CPU thermal level", "smc_thermal_level_cpu"),
+        ("IO thermal level", "smc_thermal_level_io"),
+        ("GPU thermal level", "smc_thermal_level_gpu"),
+    ]
+    .into_iter()
+    .filter_map(|(name, attribute)| {
+        let level = read_i64(&hwmon.join(attribute))?;
+        Some(ThermalRow {
+            name: name.into(),
+            key: String::new(),
+            id: attribute.into(),
+            value: level.to_string(),
+        })
+    })
+    .collect()
+}
 
-        let meter = gtk4::ProgressBar::new();
-        meter.set_show_text(false);
-        meter.set_hexpand(true);
-        meter.add_css_class("overview-meter");
-
-        let cell = gtk4::Box::new(gtk4::Orientation::Vertical, 4);
-        cell.set_hexpand(true);
-        cell.append(&header);
-        cell.append(&meter);
-        (Self { attribute, value, meter }, cell)
-    }
-
-    fn update(&self, hwmon: Option<&Path>) {
-        match hwmon.and_then(|h| read_i64(&h.join(self.attribute))) {
-            Some(level) => {
-                self.value.set_text(&level.to_string());
-                // The bar is full at the thermal limit, the label shows more
-                self.meter.set_fraction((level as f64 / 100.0).clamp(0.0, 1.0));
-            }
-            None => {
-                self.value.set_text("--");
-                self.meter.set_fraction(0.0);
-            }
-        }
-    }
+fn read_thermals(hwmon: &Path) -> Vec<ThermalRow> {
+    let mut rows = read_thermal_levels(hwmon);
+    rows.extend(read_sensors(hwmon).into_iter().map(|(name, key, val)| ThermalRow {
+        name,
+        id: key.clone(),
+        key,
+        value: sensor_value_text(val),
+    }));
+    rows
 }
 
 fn read_i64(path: &Path) -> Option<i64> {
@@ -909,15 +902,15 @@ fn refresh_value_rows(
 fn refresh_sensor_rows(
     list: &gtk4::ListBox,
     rows: &Rc<RefCell<BTreeMap<String, gtk4::Label>>>,
-    sensors: &[(String, String, Option<i64>)],
+    thermals: &[ThermalRow],
 ) {
     let has_placeholder = rows.borrow().is_empty() && list.first_child().is_some();
 
-    if sensors.is_empty() {
+    if thermals.is_empty() {
         if !has_placeholder {
             rows.borrow_mut().clear();
             clear_listbox(list);
-            append_placeholder_row(list, "No temperature sensors found");
+            append_placeholder_row(list, "No thermal sensors found");
         }
         return;
     }
@@ -925,26 +918,19 @@ fn refresh_sensor_rows(
     let rebuild = {
         let rows = rows.borrow();
         has_placeholder
-            || rows.len() != sensors.len()
-            || sensors.iter().any(|(_, key, _)| !rows.contains_key(key))
+            || rows.len() != thermals.len()
+            || thermals.iter().any(|row| !rows.contains_key(&row.id))
     };
 
     if rebuild {
-        let mut rows = rows.borrow_mut();
-        clear_listbox(list);
-        rows.clear();
-        append_table_header(list, "Sensor", "Temperature");
-        for (name, key, val) in sensors {
-            let value_label = append_table_row(list, name, key, &sensor_value_text(*val));
-            rows.insert(key.clone(), value_label);
-        }
+        rebuild_sensor_rows(list, rows, thermals);
         return;
     }
 
     let rows = rows.borrow();
-    for (_, key, val) in sensors {
-        if let Some(label) = rows.get(key) {
-            label.set_text(&sensor_value_text(*val));
+    for row in thermals {
+        if let Some(label) = rows.get(&row.id) {
+            label.set_text(&row.value);
         }
     }
 }
@@ -952,21 +938,21 @@ fn refresh_sensor_rows(
 fn rebuild_sensor_rows(
     list: &gtk4::ListBox,
     rows: &Rc<RefCell<BTreeMap<String, gtk4::Label>>>,
-    sensors: &[(String, String, Option<i64>)],
+    thermals: &[ThermalRow],
 ) {
     rows.borrow_mut().clear();
     clear_listbox(list);
 
-    if sensors.is_empty() {
-        append_placeholder_row(list, "No temperature sensors found");
+    if thermals.is_empty() {
+        append_placeholder_row(list, "No thermal sensors found");
         return;
     }
 
     let mut rows = rows.borrow_mut();
-    append_table_header(list, "Sensor", "Temperature");
-    for (name, key, val) in sensors {
-        let value_label = append_table_row(list, name, key, &sensor_value_text(*val));
-        rows.insert(key.clone(), value_label);
+    append_table_header(list, "Sensor", "Value");
+    for row in thermals {
+        let value_label = append_table_row(list, &row.name, &row.key, &row.value);
+        rows.insert(row.id.clone(), value_label);
     }
 }
 
@@ -1078,7 +1064,7 @@ fn main() {
         power_panel.append(&power_scroll);
 
         // Sensor list
-        let sensors_title = gtk4::Label::new(Some("Temperatures"));
+        let sensors_title = gtk4::Label::new(Some("Thermals"));
         sensors_title.set_halign(gtk4::Align::Start);
         sensors_title.set_xalign(0.0);
         sensors_title.add_css_class("heading");
@@ -1099,34 +1085,6 @@ fn main() {
         sensor_panel.append(&sensors_title);
         sensor_panel.append(&scroll);
 
-        // Thermal pressure the SMC reports for CPU, IO and GPU
-        let thermal_title = gtk4::Label::new(Some("Thermal pressure"));
-        thermal_title.set_halign(gtk4::Align::Start);
-        thermal_title.set_xalign(0.0);
-        thermal_title.add_css_class("heading");
-        thermal_title.set_tooltip_text(Some(
-            "SMC thermal levels, about 4 at idle and 100 at the thermal limit",
-        ));
-        let thermal_cells = gtk4::Box::new(gtk4::Orientation::Horizontal, 18);
-        thermal_cells.set_homogeneous(true);
-        let thermal_pressure: Rc<Vec<ThermalPressure>> = Rc::new(
-            [
-                ("CPU", "smc_thermal_level_cpu"),
-                ("IO", "smc_thermal_level_io"),
-                ("GPU", "smc_thermal_level_gpu"),
-            ]
-            .into_iter()
-            .map(|(name, attribute)| {
-                let (pressure, cell) = ThermalPressure::new(name, attribute);
-                thermal_cells.append(&cell);
-                pressure
-            })
-            .collect(),
-        );
-        for pressure in thermal_pressure.iter() {
-            pressure.update(hwmon.borrow().as_deref());
-        }
-
         // Layout
         let overview = gtk4::Grid::new();
         overview.set_column_spacing(18);
@@ -1142,9 +1100,6 @@ fn main() {
         overview.attach(&charge_meter, 1, 1, 1, 1);
         overview.attach(&battery_time, 0, 2, 1, 1);
         overview.attach(&status, 1, 2, 1, 1);
-        thermal_title.set_margin_top(6);
-        overview.attach(&thermal_title, 0, 3, 2, 1);
-        overview.attach(&thermal_cells, 0, 4, 2, 1);
         let overview_frame = gtk4::Frame::new(None);
         overview_frame.add_css_class("smc-panel");
         overview_frame.set_child(Some(&overview));
@@ -1296,7 +1251,6 @@ fn main() {
         let window_poll = window.downgrade();
         let refresh_battery_poll = refresh_battery.clone();
         let install_power_watch_poll = install_power_watch.clone();
-        let thermal_pressure_poll = thermal_pressure.clone();
         let hw2 = hwmon.clone();
         let status_poll = status.clone();
         let sensor_rows_poll = sensor_rows.clone();
@@ -1316,14 +1270,10 @@ fn main() {
             }
             let current_hwmon = hw2.borrow().clone();
             show_charge_limit(&charge_value_poll, &charge_meter_poll, current_hwmon.as_deref());
-            for pressure in thermal_pressure_poll.iter() {
-                pressure.update(current_hwmon.as_deref());
-            }
             if let Some(h) = current_hwmon {
                 let power = read_power_telemetry(&h);
                 refresh_value_rows(&power_list_poll, &power_rows_poll, &power);
-                let sensors = read_sensors(&h);
-                refresh_sensor_rows(&sensor_list, &sensor_rows_poll, &sensors);
+                refresh_sensor_rows(&sensor_list, &sensor_rows_poll, &read_thermals(&h));
                 refresh_battery_poll(&h);
                 install_power_watch_poll(&h);
             } else if let Some(h) = find_hwmon() {
