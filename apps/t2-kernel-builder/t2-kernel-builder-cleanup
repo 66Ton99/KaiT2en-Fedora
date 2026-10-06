@@ -20,7 +20,7 @@ REQUIRED_MODULES = (
 )
 MACSMC_MODULES = (
     "macsmc_core", "macsmc_acpi", "macsmc_hwmon", "macsmc_light",
-    "macsmc_accel", "leds_macsmc", "macsmc_chamshell", "rtc_macsmc",
+    "macsmc_accel", "leds_macsmc", "macsmc_wdt", "rtc_macsmc",
     "macsmc_power",
 )
 DRACUT_CONFIG = pathlib.Path("/etc/dracut.conf.d/90-kait2en-input.conf")

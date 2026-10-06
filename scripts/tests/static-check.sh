@@ -126,7 +126,7 @@ grep -Fq "DKMS_OVERRIDE.write_text('post_transaction=\"\"\\n'" \
 grep -Fq 'rebuilt initramfs is missing required module' \
 	apps/t2-kernel-builder/t2-kernel-builder-cleanup
 for module in acpi_tad applesmc macsmc_core macsmc_acpi macsmc_hwmon \
-		macsmc_light macsmc_accel leds_macsmc macsmc_chamshell rtc_macsmc \
+		macsmc_light macsmc_accel leds_macsmc macsmc_wdt rtc_macsmc \
 		macsmc_power hid_apple hid_appletb_bl hid_appletb_kbd hid_magicmouse \
 		appletbdrm apple_mfi_fastcharge apple_gmux t2bce_dma t2bce_core \
 		t2bce_vhci t2hid; do
@@ -141,7 +141,7 @@ grep -Fq 'Path(f"/boot/initramfs-{release}.img").is_file()' \
 ! grep -Fq '["dracut", "--force"' \
 	apps/t2-kernel-builder/t2-kernel-builder-cleanup
 for symbol in MFD_MACSMC_CORE MACSMC_ACPI SENSORS_MACSMC_HWMON \
-		MACSMC_LIGHT MACSMC_ACCEL LEDS_MACSMC INPUT_MACSMC_CHAMSHELL \
+		MACSMC_LIGHT MACSMC_ACCEL LEDS_MACSMC MACSMC_WDT \
 		RTC_DRV_MACSMC MACSMC_POWER; do
 	grep -Fq "$symbol" apps/t2-kernel-builder/engine/build.sh
 done
