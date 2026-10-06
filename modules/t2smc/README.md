@@ -285,7 +285,9 @@ value is logged as `unknown`.
 
 The SMC publishes its current thermal levels for CPU, IO and GPU. They are
 read on demand from the hwmon files `smc_thermal_level_cpu`,
-`smc_thermal_level_io` and `smc_thermal_level_gpu`.
+`smc_thermal_level_io` and `smc_thermal_level_gpu`. When the SMC reports a
+thermal level change, the driver notifies pollers of each file whose value
+changed, so readers can wait with `poll()` instead of rereading them.
 
 ### Module parameters
 

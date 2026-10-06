@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::env;
 use std::fs;
+use std::io::{Read, Seek, SeekFrom};
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -75,7 +77,7 @@ fn palette_css(dark: bool) -> String {
 fn install_palette() {
     let provider = gtk4::CssProvider::new();
     let style = adw::StyleManager::default();
-    provider.load_from_data(&palette_css(style.is_dark()));
+    provider.load_from_string(&palette_css(style.is_dark()));
     if let Some(display) = gtk4::gdk::Display::default() {
         gtk4::style_context_add_provider_for_display(
             &display,
@@ -84,7 +86,7 @@ fn install_palette() {
         );
     }
     style.connect_dark_notify(move |manager| {
-        provider.load_from_data(&palette_css(manager.is_dark()));
+        provider.load_from_string(&palette_css(manager.is_dark()));
     });
 }
 
@@ -1149,7 +1151,72 @@ fn main() {
             button.set_sensitive(true);
         });
 
-        // Poll
+        let refresh_battery: Rc<dyn Fn(&Path)> = {
+            let progress = battery_progress.clone();
+            let value = battery_value.clone();
+            let time = battery_time.clone();
+            let average = battery_current_average.clone();
+            Rc::new(move |h: &Path| {
+                update_battery_overview(
+                    &progress,
+                    &value,
+                    &time,
+                    &read_battery_overview(h),
+                    &mut average.borrow_mut(),
+                );
+            })
+        };
+
+        // Battery state changes arrive as power events, not only on the next tick
+        let power_watch: Rc<RefCell<Option<(PathBuf, glib::SourceId)>>> = Rc::new(RefCell::new(None));
+        let install_power_watch: Rc<dyn Fn(&Path)> = {
+            let power_watch = power_watch.clone();
+            let refresh_battery = refresh_battery.clone();
+            let window = window.downgrade();
+            Rc::new(move |h: &Path| {
+                if power_watch
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|(path, _)| path == h)
+                {
+                    return;
+                }
+                if let Some((_, old)) = power_watch.borrow_mut().take() {
+                    old.remove();
+                }
+                let refresh_battery = refresh_battery.clone();
+                let window = window.clone();
+                let path = h.to_path_buf();
+                let event_path = path.clone();
+                let watch_state = power_watch.clone();
+                let gone_state = power_watch.clone();
+                let source = watch_power_events(
+                    h,
+                    move || {
+                        if window.upgrade().is_some_and(|w| window_on_screen(&w)) {
+                            refresh_battery(&event_path);
+                        }
+                    },
+                    // The source is already finished, so only drop its ID to
+                    // let a later tick watch the new hwmon device
+                    move || {
+                        gone_state.borrow_mut().take();
+                    },
+                );
+                match source {
+                    Some(id) => *watch_state.borrow_mut() = Some((path, id)),
+                    None => *watch_state.borrow_mut() = None,
+                }
+            })
+        };
+        if let Some(ref h) = *hwmon.borrow() {
+            install_power_watch(h);
+        }
+
+        // Poll the displayed values, but only while the window can be seen
+        let window_poll = window.downgrade();
+        let refresh_battery_poll = refresh_battery.clone();
+        let install_power_watch_poll = install_power_watch.clone();
         let hw2 = hwmon.clone();
         let status_poll = status.clone();
         let sensor_rows_poll = sensor_rows.clone();
@@ -1160,11 +1227,13 @@ fn main() {
         let rtc_sync_poll = rtc_sync.clone();
         let charge_value_poll = charge_value.clone();
         let charge_meter_poll = charge_meter.clone();
-        let battery_progress_poll = battery_progress.clone();
-        let battery_value_poll = battery_value.clone();
-        let battery_time_poll = battery_time.clone();
-        let battery_current_average_poll = battery_current_average.clone();
         timeout_add_local(std::time::Duration::from_secs(1), move || {
+            let Some(window) = window_poll.upgrade() else {
+                return glib::ControlFlow::Break;
+            };
+            if !window_on_screen(&window) {
+                return glib::ControlFlow::Continue;
+            }
             let current_hwmon = hw2.borrow().clone();
             show_charge_limit(&charge_value_poll, &charge_meter_poll, current_hwmon.as_deref());
             if let Some(h) = current_hwmon {
@@ -1172,15 +1241,11 @@ fn main() {
                 refresh_value_rows(&power_list_poll, &power_rows_poll, &power);
                 let sensors = read_sensors(&h);
                 refresh_sensor_rows(&sensor_list, &sensor_rows_poll, &sensors);
-                update_battery_overview(
-                    &battery_progress_poll,
-                    &battery_value_poll,
-                    &battery_time_poll,
-                    &read_battery_overview(&h),
-                    &mut battery_current_average_poll.borrow_mut(),
-                );
+                refresh_battery_poll(&h);
+                install_power_watch_poll(&h);
             } else if let Some(h) = find_hwmon() {
                 set_status(&status_poll, "Ready", false);
+                install_power_watch_poll(&h);
                 *hw2.borrow_mut() = Some(h);
             }
 
@@ -1206,6 +1271,54 @@ fn main() {
     });
 
     app.run();
+}
+
+/// True while the window can be seen. Minimized windows and windows the
+/// compositor reports as suspended, for example on another workspace, are not.
+fn window_on_screen(window: &adw::ApplicationWindow) -> bool {
+    if !window.is_visible() {
+        return false;
+    }
+    let Some(surface) = window.surface() else {
+        return false;
+    };
+    let Ok(toplevel) = surface.downcast::<gtk4::gdk::Toplevel>() else {
+        return true;
+    };
+    !toplevel
+        .state()
+        .intersects(gtk4::gdk::ToplevelState::MINIMIZED | gtk4::gdk::ToplevelState::SUSPENDED)
+}
+
+/// Calls `on_event` whenever t2smc counts a power supply event. The driver
+/// calls sysfs_notify on power_event_count, which wakes poll() with POLLPRI.
+/// The source ends and calls `on_gone` when the file goes away, for example on
+/// module unload.
+fn watch_power_events(
+    hwmon: &Path,
+    on_event: impl Fn() + 'static,
+    on_gone: impl Fn() + 'static,
+) -> Option<glib::SourceId> {
+    let mut file = fs::File::open(hwmon.join("power_event_count")).ok()?;
+    let mut count = String::new();
+    // sysfs only reports changes after the attribute has been read once
+    file.read_to_string(&mut count).ok()?;
+    let fd = file.as_raw_fd();
+    Some(glib::unix_fd_add_local(
+        fd,
+        glib::IOCondition::PRI | glib::IOCondition::ERR,
+        move |_, _| {
+            count.clear();
+            let rearmed = file.seek(SeekFrom::Start(0)).is_ok()
+                && file.read_to_string(&mut count).is_ok();
+            if !rearmed {
+                on_gone();
+                return glib::ControlFlow::Break;
+            }
+            on_event();
+            glib::ControlFlow::Continue
+        },
+    ))
 }
 
 fn register_embedded_resources() {

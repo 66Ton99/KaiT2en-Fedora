@@ -189,6 +189,8 @@ struct t2smc_device {
 	bool has_port;
 	struct completion cmd_done;  /* KeyDone, every command waits for it */
 	struct work_struct sync_work;  /* storage sync on ShutdownImminent */
+	struct work_struct thermal_work;  /* notifies thermal level readers */
+	u8 thermal_level[3];
 
 	/* Key cache */
 	struct mutex mutex;
@@ -2096,6 +2098,35 @@ static void t2smc_sync_work(struct work_struct *work)
 	ksys_sync_helper();
 }
 
+/* Wake up pollers of the thermal level files whose value changed */
+static void t2smc_thermal_work(struct work_struct *work)
+{
+	struct t2smc_device *t2 = container_of(work, struct t2smc_device,
+					       thermal_work);
+	static const struct {
+		u8 port;
+		const char *attr;
+	} levels[] = {
+		{ T2SMC_PORT_THERMAL_CPU, "smc_thermal_level_cpu" },
+		{ T2SMC_PORT_THERMAL_IO, "smc_thermal_level_io" },
+		{ T2SMC_PORT_THERMAL_GPU, "smc_thermal_level_gpu" },
+	};
+	struct device *hwmon_dev = READ_ONCE(t2->hwmon_dev);
+	u8 level;
+	int i;
+
+	if (!hwmon_dev)
+		return;
+
+	for (i = 0; i < ARRAY_SIZE(levels); i++) {
+		level = inb(t2->port_base + levels[i].port);
+		if (level == t2->thermal_level[i])
+			continue;
+		t2->thermal_level[i] = level;
+		sysfs_notify(&hwmon_dev->kobj, NULL, levels[i].attr);
+	}
+}
+
 /* AppleSMC copies the text and prints it as "Log: %s" */
 static void t2smc_log_message(struct t2smc_device *t2)
 {
@@ -2133,6 +2164,7 @@ static irqreturn_t t2smc_irq(int irq, void *data)
 	/* Under load the SMC reports level changes about once per second */
 	case T2SMC_EVENT_THERMAL_LEVEL:
 		dev_dbg(t2->dev, "SMC thermal level changed\n");
+		schedule_work(&t2->thermal_work);
 		break;
 	/* Sent once right after NTOK is set */
 	case T2SMC_EVENT_THERMAL_CONFIG:
@@ -2177,6 +2209,15 @@ static void t2smc_cancel_sync_work(void *data)
 	struct t2smc_device *t2 = data;
 
 	cancel_work_sync(&t2->sync_work);
+}
+
+/* Runs before the hwmon device goes away, later thermal work is a no-op */
+static void t2smc_stop_thermal_notify(void *data)
+{
+	struct t2smc_device *t2 = data;
+
+	WRITE_ONCE(t2->hwmon_dev, NULL);
+	cancel_work_sync(&t2->thermal_work);
 }
 
 /* SMC commands complete by interrupt, so the driver cannot work without it */
@@ -2350,6 +2391,7 @@ static int t2smc_probe(struct platform_device *pdev)
 	mutex_init(&t2->battery_lock);
 	INIT_WORK(&t2->power_event_work, t2smc_power_event_work);
 	INIT_WORK(&t2->sync_work, t2smc_sync_work);
+	INIT_WORK(&t2->thermal_work, t2smc_thermal_work);
 	init_completion(&t2->cmd_done);
 	atomic64_set(&t2->power_event_count, 0);
 	t2->power_supply_nb.notifier_call = t2smc_power_supply_event;
@@ -2407,6 +2449,9 @@ static int t2smc_probe(struct platform_device *pdev)
 	t2smc_log_shutdown_cause(t2);
 
 	ret = t2smc_register_hwmon(t2);
+	if (ret)
+		return ret;
+	ret = devm_add_action_or_reset(&pdev->dev, t2smc_stop_thermal_notify, t2);
 	if (ret)
 		return ret;
 
