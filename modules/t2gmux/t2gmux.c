@@ -117,8 +117,14 @@ static struct apple_gmux_data *apple_gmux_data;
  */
 #define GMUX_DGPU_MAX_BRIDGES 6
 
-/* GPUMinimumOffTime of the AppleMuxControl2 config for these models. */
-#define GMUX_DGPU_MIN_OFF_MS 200
+/*
+ * Minimum time the Navi dGPU on the PWRD path stays off before it may be
+ * powered up again. The AppleMuxControl2 config only asks for 200 ms
+ * (GPUMinimumOffTime), but powering up again 1 to 3 s after a power-down
+ * makes the T2 cut power within a few cycles. Off times of 4 s and more
+ * survived 100 cycles in testing, so keep it off for at least 5 s.
+ */
+#define GMUX_DGPU_MIN_OFF_MS 5000
 /* Config space wait of AppleMuxControl2 after power-up. */
 #define GMUX_DGPU_CFG_WAIT_MS 180
 
