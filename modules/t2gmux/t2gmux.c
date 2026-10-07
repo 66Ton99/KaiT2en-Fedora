@@ -1333,105 +1333,53 @@ static int is_thunderbolt(struct device *dev, void *data)
  * TEST: power the Titan Ridge PEG ports down like AppleThunderbolt does on
  * the Darwin ACPI path, to see whether the dGPU CATERR depends on PEG1/PEG2
  * staying up next to PEG0. Thunderbolt and its USB ports are gone afterwards.
- *
- * This follows PEGx.PCDA but does its PCI_Config accesses here, since ACPICA
- * resolves the regions of the upstream port behind the root port to the wrong
- * device. Only PUPD (ECAM) and the GPIO helpers run as AML.
+ * Needs the ACPICA PCI_Config fix, PCDA touches UPSB config behind the port.
  */
-#define GMUX_TB_UPSB_EXP_CAP 0xc0
-
-static int gmux_test_acpi_call(const char *path, int argc, u64 a0, u64 a1)
-{
-	union acpi_object arg[2] = {
-		{ .integer = { .type = ACPI_TYPE_INTEGER, .value = a0 } },
-		{ .integer = { .type = ACPI_TYPE_INTEGER, .value = a1 } },
-	};
-	struct acpi_object_list args = { argc, arg };
-	acpi_status status;
-
-	status = acpi_evaluate_object(NULL, (acpi_string)path, &args, NULL);
-	pr_info("test: %s: %s\n", path, acpi_format_exception(status));
-	return ACPI_FAILURE(status) ? -EIO : 0;
-}
-
-static void gmux_test_tb_peg_off(struct pci_dev *port, const char *pupd,
-				 const u32 gpio[2])
-{
-	struct pci_bus *bus = port->subordinate;
-	unsigned long timeout;
-	u32 lnkcap, id;
-	u16 lnksta, val;
-	int i;
-
-	/* Remove everything behind the port so no driver touches it again. */
-	pci_lock_rescan_remove();
-	if (bus) {
-		struct pci_dev *child, *tmp;
-
-		list_for_each_entry_safe_reverse(child, tmp, &bus->devices,
-						 bus_list)
-			pci_stop_and_remove_bus_device(child);
-	}
-	pci_unlock_rescan_remove();
-
-	/* PSTA = 3 on the root port. */
-	pci_read_config_word(port, port->pm_cap + PCI_PM_CTRL, &val);
-	pci_write_config_word(port, port->pm_cap + PCI_PM_CTRL,
-			      (val & ~PCI_PM_CTRL_STATE_MASK) | PCI_D3hot);
-
-	/* TSPD = 1 on the root port and the upstream port, then LRTN. */
-	pcie_capability_clear_and_set_word(port, PCI_EXP_LNKCTL2,
-					   PCI_EXP_LNKCTL2_TLS, 1);
-	if (bus) {
-		pci_bus_read_config_word(bus, 0, GMUX_TB_UPSB_EXP_CAP +
-					 PCI_EXP_LNKCTL2, &val);
-		pci_bus_write_config_word(bus, 0, GMUX_TB_UPSB_EXP_CAP +
-					  PCI_EXP_LNKCTL2,
-					  (val & ~PCI_EXP_LNKCTL2_TLS) | 1);
-	}
-	pcie_capability_set_word(port, PCI_EXP_LNKCTL, PCI_EXP_LNKCTL_RL);
-
-	pcie_capability_read_dword(port, PCI_EXP_LNKCAP, &lnkcap);
-	timeout = jiffies + HZ;
-	while (time_before(jiffies, timeout)) {
-		pcie_capability_read_word(port, PCI_EXP_LNKSTA, &lnksta);
-		if (!(lnksta & PCI_EXP_LNKSTA_LT) &&
-		    (!(lnkcap & PCI_EXP_LNKCAP_DLLLARC) ||
-		     (lnksta & PCI_EXP_LNKSTA_DLLLA)))
-			break;
-		msleep(10);
-	}
-	while (bus && time_before(jiffies, timeout)) {
-		pci_bus_read_config_dword(bus, 0, PCI_VENDOR_ID, &id);
-		if (id != 0xffffffff)
-			break;
-		msleep(10);
-	}
-	pci_info(port, "test: retrained to gen1, lnksta %#06x\n", lnksta);
-
-	gmux_test_acpi_call(pupd, 2, 0, 2);
-	for (i = 0; i < 2; i++) {
-		gmux_test_acpi_call("\\_SB.SGOV", 2, gpio[i], 0);
-		gmux_test_acpi_call("\\_SB.SGDO", 1, gpio[i], 0);
-	}
-	msleep(10);
-}
-
 static void gmux_test_tb_power_off(void)
 {
-	static const u32 peg1_gpio[2] = { 0x03050007, 0x03050008 };
-	static const u32 peg2_gpio[2] = { 0x03050009, 0x0305000a };
-	struct pci_dev *port;
+	static const char * const rtpc[] = {
+		"\\_SB.PCI0.PEG1.UPSB.DSB0.NHI0.RTPC",
+		"\\_SB.PCI0.PEG1.UPSB.DSB2.XHC2.RTPC",
+		"\\_SB.PCI0.PEG2.UPSB.DSB0.NHI0.RTPC",
+		"\\_SB.PCI0.PEG2.UPSB.DSB2.XHC3.RTPC",
+	};
+	static const struct {
+		const char *ps3;
+		unsigned int devfn;
+	} peg[] = {
+		{ "\\_SB.PCI0.PEG1._PS3", PCI_DEVFN(1, 1) },
+		{ "\\_SB.PCI0.PEG2._PS3", PCI_DEVFN(1, 2) },
+	};
+	union acpi_object arg = { .integer = { .type = ACPI_TYPE_INTEGER } };
+	struct acpi_object_list args = { 1, &arg };
+	acpi_status status;
+	int i;
 
-	port = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(1, 1));
-	if (port) {
-		gmux_test_tb_peg_off(port, "\\_SB.PCI0.PEG1.PUPD", peg1_gpio);
+	for (i = 0; i < ARRAY_SIZE(peg); i++) {
+		struct pci_dev *port = pci_get_domain_bus_and_slot(0, 0, peg[i].devfn);
+		struct pci_dev *child, *tmp;
+
+		if (!port)
+			continue;
+		if (port->subordinate) {
+			pci_lock_rescan_remove();
+			list_for_each_entry_safe_reverse(child, tmp,
+					&port->subordinate->devices, bus_list)
+				pci_stop_and_remove_bus_device(child);
+			pci_unlock_rescan_remove();
+		}
+		pci_info(port, "test: removed Thunderbolt devices\n");
 		pci_dev_put(port);
 	}
-	port = pci_get_domain_bus_and_slot(0, 0, PCI_DEVFN(1, 2));
-	if (port) {
-		gmux_test_tb_peg_off(port, "\\_SB.PCI0.PEG2.PUPD", peg2_gpio);
-		pci_dev_put(port);
+
+	for (i = 0; i < ARRAY_SIZE(rtpc); i++) {
+		status = acpi_evaluate_object(NULL, (acpi_string)rtpc[i], &args, NULL);
+		pr_info("test: %s(0): %s\n", rtpc[i], acpi_format_exception(status));
+	}
+
+	for (i = 0; i < ARRAY_SIZE(peg); i++) {
+		status = acpi_evaluate_object(NULL, (acpi_string)peg[i].ps3, NULL, NULL);
+		pr_info("test: %s: %s\n", peg[i].ps3, acpi_format_exception(status));
 	}
 }
 
