@@ -1329,60 +1329,6 @@ static int is_thunderbolt(struct device *dev, void *data)
 	return to_pci_dev(dev)->is_thunderbolt;
 }
 
-/*
- * TEST: power the Titan Ridge PEG ports down like AppleThunderbolt does on
- * the Darwin ACPI path, to see whether the dGPU CATERR depends on PEG1/PEG2
- * staying up next to PEG0. Thunderbolt and its USB ports are gone afterwards.
- * Needs the ACPICA PCI_Config fix, PCDA touches UPSB config behind the port.
- */
-static void gmux_test_tb_power_off(void)
-{
-	static const char * const rtpc[] = {
-		"\\_SB.PCI0.PEG1.UPSB.DSB0.NHI0.RTPC",
-		"\\_SB.PCI0.PEG1.UPSB.DSB2.XHC2.RTPC",
-		"\\_SB.PCI0.PEG2.UPSB.DSB0.NHI0.RTPC",
-		"\\_SB.PCI0.PEG2.UPSB.DSB2.XHC3.RTPC",
-	};
-	static const struct {
-		const char *ps3;
-		unsigned int devfn;
-	} peg[] = {
-		{ "\\_SB.PCI0.PEG1._PS3", PCI_DEVFN(1, 1) },
-		{ "\\_SB.PCI0.PEG2._PS3", PCI_DEVFN(1, 2) },
-	};
-	union acpi_object arg = { .integer = { .type = ACPI_TYPE_INTEGER } };
-	struct acpi_object_list args = { 1, &arg };
-	acpi_status status;
-	int i;
-
-	for (i = 0; i < ARRAY_SIZE(peg); i++) {
-		struct pci_dev *port = pci_get_domain_bus_and_slot(0, 0, peg[i].devfn);
-		struct pci_dev *child, *tmp;
-
-		if (!port)
-			continue;
-		if (port->subordinate) {
-			pci_lock_rescan_remove();
-			list_for_each_entry_safe_reverse(child, tmp,
-					&port->subordinate->devices, bus_list)
-				pci_stop_and_remove_bus_device(child);
-			pci_unlock_rescan_remove();
-		}
-		pci_info(port, "test: removed Thunderbolt devices\n");
-		pci_dev_put(port);
-	}
-
-	for (i = 0; i < ARRAY_SIZE(rtpc); i++) {
-		status = acpi_evaluate_object(NULL, (acpi_string)rtpc[i], &args, NULL);
-		pr_info("test: %s(0): %s\n", rtpc[i], acpi_format_exception(status));
-	}
-
-	for (i = 0; i < ARRAY_SIZE(peg); i++) {
-		status = acpi_evaluate_object(NULL, (acpi_string)peg[i].ps3, NULL, NULL);
-		pr_info("test: %s: %s\n", peg[i].ps3, acpi_format_exception(status));
-	}
-}
-
 static int gmux_probe(struct pnp_dev *pnp, const struct pnp_device_id *id)
 {
 	struct apple_gmux_data *gmux_data;
@@ -1569,8 +1515,6 @@ get_version:
 	}
 
 	gmux_init_debugfs(gmux_data);
-	if (gmux_data->use_pwrd_power_sequence)
-		gmux_test_tb_power_off();
 	return 0;
 
 err_register_handler:
