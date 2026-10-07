@@ -824,19 +824,15 @@ static int gmux_switch_ddc(enum vga_switcheroo_client_id id)
  */
 
 static void gmux_dump_power(struct apple_gmux_data *gmux_data,
-			    const char *when, bool warn)
+			    const char *when)
 {
 	u8 power = gmux_read8(gmux_data, GMUX_PORT_DISCRETE_POWER);
 	u8 status = gmux_read8(gmux_data, GMUX_PORT_INTERRUPT_STATUS);
 	u8 enable = gmux_read8(gmux_data, GMUX_PORT_INTERRUPT_ENABLE);
 	u8 gpu = gmux_read8(gmux_data, GMUX_PORT_GPU_POWER_STATE);
 
-	if (warn)
-		pr_warn("%s: power 0x%02x gpu state 0x%02x irq status 0x%02x enable 0x%02x\n",
-			when, power, gpu, status, enable);
-	else
-		pr_debug("%s: power 0x%02x gpu state 0x%02x irq status 0x%02x enable 0x%02x\n",
-			 when, power, gpu, status, enable);
+	pr_warn("%s: power 0x%02x gpu state 0x%02x irq status 0x%02x enable 0x%02x\n",
+		when, power, gpu, status, enable);
 }
 
 static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
@@ -862,7 +858,6 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 				msleep(GMUX_DGPU_MIN_OFF_MS - off_ms);
 			}
 
-			gmux_dump_power(gmux_data, "power up: before PWRD(0)", false);
 			gmux_lock_dgpu_cfg(gmux_data, &cfg_locks);
 			pr_debug("power up: PWRD(0)\n");
 			ret = gmux_call_pwrd(gmux_data, false);
@@ -940,7 +935,6 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 			usleep_range(10000, 11000);
 		pr_debug("power down: port 0\n");
 		gmux_write8(gmux_data, GMUX_PORT_DISCRETE_POWER, 0);
-		gmux_dump_power(gmux_data, "power down: after port 0", false);
 		if (gmux_data->use_pwrd_power_sequence) {
 			msleep(20);
 			gmux_data->dgpu_off_time = ktime_get();
@@ -957,11 +951,9 @@ static int __gmux_set_discrete_state(struct apple_gmux_data *gmux_data,
 	    !wait_for_completion_interruptible_timeout(&gmux_data->powerchange_done,
 						       msecs_to_jiffies(200))) {
 		pr_warn("Timeout waiting for gmux switch to complete\n");
-		gmux_dump_power(gmux_data, "power: timeout", true);
+		gmux_dump_power(gmux_data, "power: timeout");
 	}
 	pr_debug("power: gmux switch done\n");
-	gmux_dump_power(gmux_data, state == VGA_SWITCHEROO_ON ?
-			"power up: done" : "power down: done", false);
 
 	return 0;
 
