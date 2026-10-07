@@ -231,11 +231,14 @@ is stopped on reboot and poweroff. Start, stop and timeout changes are logged.
 
 ### SMC events
 
-Every SMC command sleeps until the SMC signals completion with its KeyDone
-interrupt. The driver never polls the status register. It therefore
-requires the SMC interrupt, the I/O port window that carries the event ID
-and the `NTOK` key, and it does not load without them. `NTOK` is set as the
-first command after mapping MMIO and again on resume.
+SMC events work like in macOS AppleSMC. When the SMC interrupt and the I/O
+port window that carries the event ID are available, the driver sets `NTOK`
+right after mapping MMIO. Before that write it drains pending events, because
+the interrupt is edge triggered. From then on every SMC command sleeps until
+the KeyDone interrupt. Without the interrupt, the port window or a working
+`NTOK` the driver polls the key status every millisecond instead. If a
+KeyDone interrupt goes missing, it reverts to polling and retries `NTOK` on
+the next resume. The kernel log shows which mode is active.
 
 When the SMC reports imminent power loss (event `0x40`), the driver syncs
 all filesystems and flushes the block devices. macOS reacts to the same event
@@ -243,7 +246,8 @@ by telling every AHCI and NVMe disk to prepare for abrupt power loss. Log
 messages from the SMC (event `0x4c`) appear in the kernel log as `SMC log:`.
 A BridgeOS panic is logged as a warning. Thermal level changes are only
 logged at debug level because the SMC sends them about once per second under
-load. A command that gets no KeyDone within one second fails.
+load. A command that gets no KeyDone within one second fails unless its
+status already reports completion.
 
 At load the driver logs the cause of the previous shutdown from `MSSD`, the
 same value macOS prints as `Previous shutdown cause`. Like macOS it clears

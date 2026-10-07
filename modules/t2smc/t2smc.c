@@ -70,6 +70,8 @@
 #define T2SMC_IOMEM_KEY_TYPE_FLAGS     6
 
 #define T2SMC_CMD_TIMEOUT_MS    1000  /* as AppleSMC waitForKeyDone */
+#define T2SMC_NTOK_DRAIN_TRIES  8     /* as AppleSMC before writing NTOK */
+#define T2SMC_NTOK_DRAIN_MS     20
 
 /* SMC commands */
 #define T2SMC_READ_CMD               0x10
@@ -192,7 +194,9 @@ struct t2smc_device {
 	/* Event interrupt */
 	u16 port_base;
 	bool has_port;
-	struct completion cmd_done;  /* KeyDone, every command waits for it */
+	bool has_events;             /* IRQ and I/O port window are set up */
+	bool cmd_irq;                /* commands wait for KeyDone by interrupt */
+	struct completion cmd_done;
 	struct work_struct sync_work;  /* storage sync on ShutdownImminent */
 	struct work_struct thermal_work;  /* notifies thermal level readers */
 	u8 thermal_level[3];
@@ -253,10 +257,32 @@ static inline bool iomem_cmd_done(struct t2smc_device *t2)
 }
 
 /*
- * Sleep until KeyDone. The status is checked after every wakeup because a
+ * The KeyDone wait follows AppleSMC::waitForKeyDone. With SMC events enabled
+ * it sleeps until the KeyDone interrupt, otherwise it polls the key status
+ * every millisecond like waitForKeyDoneUsingPolling.
+ */
+static int iomem_wait_poll(struct t2smc_device *t2)
+{
+	int ms;
+
+	for (ms = 0; ms < T2SMC_CMD_TIMEOUT_MS; ms++) {
+		if (iomem_cmd_done(t2))
+			return 0;
+		usleep_range(1000, 2000);
+	}
+	if (iomem_cmd_done(t2))
+		return 0;
+	dev_warn(t2->dev, "%s: timeout\n", __func__);
+	return -ETIMEDOUT;
+}
+
+/*
+ * Like waitForKeyDoneUsingInterrupt: a missing interrupt reverts to polling
+ * until NTOK is written again, and a command whose status already reports
+ * KeyDone still succeeds. The status is checked after every wakeup because a
  * late interrupt of the previous command can complete the wait early.
  */
-static int iomem_wait_read(struct t2smc_device *t2)
+static int iomem_wait_irq(struct t2smc_device *t2)
 {
 	unsigned long left = msecs_to_jiffies(T2SMC_CMD_TIMEOUT_MS);
 
@@ -271,8 +297,19 @@ static int iomem_wait_read(struct t2smc_device *t2)
 		if (iomem_cmd_done(t2))
 			return 0;
 	}
-	dev_warn(t2->dev, "%s: no KeyDone interrupt\n", __func__);
+
+	WRITE_ONCE(t2->cmd_irq, false);
+	dev_warn(t2->dev, "no KeyDone interrupt, reverting to polling\n");
+	if (iomem_cmd_done(t2))
+		return 0;
 	return -ETIMEDOUT;
+}
+
+static int iomem_wait_read(struct t2smc_device *t2)
+{
+	if (READ_ONCE(t2->cmd_irq))
+		return iomem_wait_irq(t2);
+	return iomem_wait_poll(t2);
 }
 
 /* -- MMIO SMC read/write -- */
@@ -851,7 +888,7 @@ static int t2smc_try_enable_iomem(struct platform_device *pdev,
 		return -ENXIO;
 	}
 
-	/* Every command completes by interrupt, so events come first */
+	/* Enable events first so that later commands can wait by interrupt */
 	ret = t2smc_setup_events(pdev, t2);
 	if (ret)
 		return ret;
@@ -2225,23 +2262,41 @@ static irqreturn_t t2smc_irq(int irq, void *data)
 }
 
 /*
- * NTOK switches event interrupts on and off. Setting it already raises
- * KeyDone for the write itself, so it needs no key cache and no polling.
+ * Mirrors the NTOK case of AppleSMC::smcWriteKeyMMIO. Events that are still
+ * pending are drained first, because the interrupt is edge triggered and
+ * would not fire again for the KeyDone of the NTOK write. Interrupt mode is
+ * switched on before the write so that its KeyDone already arrives by
+ * interrupt, and off again if the write fails.
  */
-static int t2smc_set_notifications(struct t2smc_device *t2, bool enable)
+static int t2smc_enable_notifications(struct t2smc_device *t2)
 {
-	u8 val = enable;
-	int ret;
+	u8 val = 1;
+	int i, ret;
 
 	mutex_lock(&t2->mutex);
+	for (i = 0; i <= T2SMC_NTOK_DRAIN_TRIES &&
+	     (ioread8(t2->iomem + T2SMC_IOMEM_INT_STATUS) & 0x20); i++) {
+		inb(t2->port_base + T2SMC_PORT_EVENT);
+		msleep(T2SMC_NTOK_DRAIN_MS);
+	}
+
+	WRITE_ONCE(t2->cmd_irq, true);
 	ret = write_smc(t2, T2SMC_NOTIFY, &val, 1);
+	if (ret)
+		WRITE_ONCE(t2->cmd_irq, false);
 	mutex_unlock(&t2->mutex);
 	return ret;
 }
 
 static void t2smc_disable_events(void *data)
 {
-	t2smc_set_notifications(data, false);
+	struct t2smc_device *t2 = data;
+	u8 val = 0;
+
+	mutex_lock(&t2->mutex);
+	WRITE_ONCE(t2->cmd_irq, false);
+	write_smc(t2, T2SMC_NOTIFY, &val, 1);
+	mutex_unlock(&t2->mutex);
 }
 
 static void t2smc_cancel_sync_work(void *data)
@@ -2260,43 +2315,58 @@ static void t2smc_stop_thermal_notify(void *data)
 	cancel_work_sync(&t2->thermal_work);
 }
 
-/* SMC commands complete by interrupt, so the driver cannot work without it */
+/*
+ * SMC events are optional like in AppleSMC. Without an interrupt, the I/O
+ * port window or a working NTOK the driver keeps polling for KeyDone.
+ */
 static int t2smc_setup_events(struct platform_device *pdev,
 			      struct t2smc_device *t2)
 {
 	int irq, ret;
 
-	if (!t2->has_port)
-		return dev_err_probe(t2->dev, -ENODEV,
-				     "no SMC I/O port window for events\n");
+	if (!t2->has_port) {
+		dev_info(t2->dev, "no SMC I/O port window, polling for KeyDone\n");
+		return 0;
+	}
 
-	irq = platform_get_irq(pdev, 0);
-	if (irq < 0)
-		return dev_err_probe(t2->dev, irq, "no SMC interrupt\n");
+	irq = platform_get_irq_optional(pdev, 0);
+	if (irq < 0) {
+		dev_info(t2->dev, "no SMC interrupt, polling for KeyDone\n");
+		return 0;
+	}
 
 	if (!devm_request_region(t2->dev, t2->port_base, T2SMC_PORT_MIN_SIZE,
-				 "t2smc"))
-		return dev_err_probe(t2->dev, -EBUSY, "I/O ports 0x%x busy\n",
-				     t2->port_base);
+				 "t2smc")) {
+		dev_warn(t2->dev, "I/O ports 0x%x busy, polling for KeyDone\n",
+			 t2->port_base);
+		return 0;
+	}
 
 	ret = devm_add_action_or_reset(t2->dev, t2smc_cancel_sync_work, t2);
 	if (ret)
 		return ret;
 
 	ret = devm_request_irq(t2->dev, irq, t2smc_irq, 0, "t2smc", t2);
-	if (ret)
-		return dev_err_probe(t2->dev, ret, "failed to request IRQ %d\n",
-				     irq);
-
-	ret = t2smc_set_notifications(t2, true);
-	if (ret)
-		return dev_err_probe(t2->dev, ret, "failed to enable SMC events\n");
+	if (ret) {
+		dev_warn(t2->dev, "failed to request IRQ %d: %d, polling for KeyDone\n",
+			 irq, ret);
+		return 0;
+	}
+	t2->has_events = true;
 
 	ret = devm_add_action_or_reset(t2->dev, t2smc_disable_events, t2);
 	if (ret)
 		return ret;
 
-	dev_info(t2->dev, "SMC events enabled (IRQ %d)\n", irq);
+	ret = t2smc_enable_notifications(t2);
+	if (ret)
+		dev_warn(t2->dev, "failed to enable SMC events: %d, polling for KeyDone\n",
+			 ret);
+	else if (!READ_ONCE(t2->cmd_irq))
+		dev_warn(t2->dev, "SMC events enabled (IRQ %d), but KeyDone is polled\n",
+			 irq);
+	else
+		dev_info(t2->dev, "SMC events enabled (IRQ %d)\n", irq);
 	return 0;
 }
 
@@ -2585,10 +2655,12 @@ static int t2smc_resume(struct device *dev)
 	struct t2smc_device *t2 = dev_get_drvdata(dev);
 	int ret;
 
-	/* The SMC may have dropped NTOK while the host slept */
-	ret = t2smc_set_notifications(t2, true);
-	if (ret)
-		dev_warn(dev, "failed to re-enable SMC events: %d\n", ret);
+	/* Like AppleSMC::setPowerState, retry NTOK after a revert to polling */
+	if (t2->has_events && !READ_ONCE(t2->cmd_irq)) {
+		ret = t2smc_enable_notifications(t2);
+		if (ret)
+			dev_warn(dev, "failed to re-enable SMC events: %d\n", ret);
+	}
 
 	t2smc_restore_fans(t2);
 
