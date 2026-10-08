@@ -1,0 +1,42 @@
+From: Jose Miguel Ochoa <josemiguelo.ochoa@gmail.com>
+Subject: [PATCH] Bluetooth: hci_event: strip Broadcom vendor bits from legacy
+ adv report type
+
+Broadcom ROM firmware on BCM4364B3 Apple T2 Macs sets vendor bits
+0x10/0x20/0x80 in legacy LE Advertising Report Event_Type. Linux drops
+these reports, preventing reliable discovery and reconnection of LE
+peripherals. Dropped service advertisements can also prevent Chrome's
+phone passkey proximity scan from detecting the phone.
+
+Normalize out-of-range event types only for Broadcom (manufacturer 15).
+Valid legacy types 0-4 are unchanged; invalid low nibbles are still
+rejected by process_adv_report(). Other manufacturers are unchanged.
+
+Backport the t2linux patch to the Oracle UEK 6.12 event handler without
+its newer hci_store_wake_reason() context. No UART speed, firmware,
+controller power or pairing data changes are included.
+
+Source: https://github.com/t2linux/linux-t2-patches/blob/main/9002-Bluetooth-hci_event-strip-Broadcom-vendor-bits-from-adv-type.patch
+Upstream-source-commit: e09bde5c4c139e73f244e355f756c857abc0846f
+Signed-off-by: Jose Miguel Ochoa <josemiguelo.ochoa@gmail.com>
+---
+ net/bluetooth/hci_event.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/net/bluetooth/hci_event.c b/net/bluetooth/hci_event.c
+--- a/net/bluetooth/hci_event.c
++++ b/net/bluetooth/hci_event.c
+@@ -6263,6 +6263,13 @@
+ 					info->length + 1))
+ 			break;
+ 
++		/* Broadcom ROM firmware (BCM4364B3 on Apple T2 Macs, no
++		 * patchram) sets vendor bits in the legacy Event_Type; the
++		 * valid type is in the low nibble.
++		 */
++		if (hdev->manufacturer == 15 && info->type > LE_ADV_SCAN_RSP)
++			info->type &= 0x0f;
++
+ 		if (info->length <= max_adv_len(hdev)) {
+ 			rssi = info->data[info->length];
+ 			process_adv_report(hdev, info->type, &info->bdaddr,
