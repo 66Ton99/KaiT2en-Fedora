@@ -1,0 +1,3 @@
+# Unified-diff context has a leading space before tabs and blank lines.
+patches/**/*.patch -whitespace
+patches/runtime/bluetooth-bcm4364-rom/*.patch -whitespace

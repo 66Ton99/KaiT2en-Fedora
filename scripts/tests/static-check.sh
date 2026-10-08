@@ -44,6 +44,7 @@ shell_files=(
 	scripts/tests/rescue.sh
 	scripts/tests/live-wifi.sh
 	scripts/tests/terminal-launcher.sh
+	scripts/tests/bluetooth-bcm4364-rom.sh
 	scripts/tests/wifi-firmware.sh
 )
 for file in "${shell_files[@]}"; do
@@ -286,4 +287,5 @@ bash scripts/tests/release-bootstrap.sh
 bash scripts/tests/terminal-launcher.sh
 bash scripts/tests/iso-download.sh
 bash scripts/tests/edition-catalog.sh
+bash scripts/tests/bluetooth-bcm4364-rom.sh
 printf 'Installer static checks passed.\n'
