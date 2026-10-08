@@ -37,3 +37,7 @@ compile_commands.json
 /website/build/
 /tmp
 /temp
+
+# Private macOS keybag exports must never enter source control.
+user.kb
+macos-uid.txt

@@ -11,7 +11,7 @@ pub mod proto;
 pub mod wire;
 
 use std::net::{Ipv6Addr, SocketAddrV6, TcpStream};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use plist::Value;
@@ -43,6 +43,44 @@ pub struct Session {
     records: Vec<u8>,
 }
 
+/// Discover only the advertised service port. No BiometricKit session,
+/// sensor command or SEP mailbox operation is issued. Discovery finishes and
+/// closes its RemoteXPC connection before returning.
+pub fn discover_service_port(interface: Option<String>, host: Option<String>) -> Result<u16> {
+    let interface = discovery::interface(interface)?;
+    let host = discovery::host(&interface, host)?;
+    Ok(remote::discover_direct_named_service(&interface, host, SERVICE)
+        .context("BiometricKit discovery failed")?.service_port)
+}
+
+/// Query the account's secure-key-store state without sensor initialization.
+/// The reply is a raw firmware value, not a fingerprint authentication result.
+/// No reset, calibration, identity inventory or SEP mailbox operation is sent.
+pub fn query_sks_lock_state(
+    interface: Option<String>, host: Option<String>, user_id: u32,
+) -> Result<u32> {
+    ensure!(user_id != 0, "an explicit macOS user id is required");
+    let interface = discovery::interface(interface)?;
+    let host = discovery::host(&interface, host)?;
+    let service = remote::discover_direct_named_service(&interface, host, SERVICE)
+        .context("BiometricKit discovery failed")?;
+    Session::connect(&interface, host, service.service_port)?.sks_lock_state(user_id)
+}
+
+/// Use the port discovered before native setup; do not perform another
+/// RemoteXPC discovery while the native transport holds SEP DMA.
+pub fn query_sks_lock_state_at(
+    interface: Option<String>, host: Option<String>, user_id: u32, port: u16,
+) -> Result<u32> {
+    ensure!(user_id != 0, "an explicit macOS user id is required");
+    ensure!((discovery::FIRST_DYNAMIC_PORT..=discovery::LAST_DYNAMIC_PORT).contains(&port),
+        "invalid BiometricKit service port");
+    let interface = discovery::interface(interface)?;
+    let host = discovery::host(&interface, host)?;
+    Session::connect(&interface, host, port)?.sks_lock_state(user_id)
+}
+
+
 impl Session {
     /// Find the link, activate BiometricKit and bring the sensor up to the
     /// point where it can scan. Without the calibration load the sensor stays
@@ -65,8 +103,14 @@ impl Session {
         ensure!(scope != 0, "unknown interface {interface}");
         let address = SocketAddrV6::new(host, port, 0, scope);
         let stream = TcpStream::connect_timeout(&address.into(), Duration::from_secs(3))?;
+        Self::from_stream(stream)
+    }
+
+    fn from_stream(mut stream: TcpStream) -> Result<Self> {
         stream.set_nodelay(true)?;
-        let mut stream = stream;
+        // Apply the bound before HELO, not only after the first command.
+        stream.set_read_timeout(Some(Duration::from_secs(8)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(8)))?;
         wire::handshake(&mut stream, "t2-touchid")?;
         Ok(Self { stream, identities: Vec::new(), records: Vec::new() })
     }
@@ -103,9 +147,10 @@ impl Session {
             &user_id.to_le_bytes(),
             capacity,
         )?;
-        let records = proto::data(&reply).unwrap_or_default();
+        let records = proto::data(&reply)?;
         ensure!(
-            records.len() % proto::IDENTITY_RECORD_SIZE == 0,
+            records.len() <= capacity as usize
+                && records.len() % proto::IDENTITY_RECORD_SIZE == 0,
             "malformed identity inventory: {} bytes",
             records.len()
         );
@@ -152,7 +197,7 @@ impl Session {
     pub fn sks_lock_state(&mut self, user_id: u32) -> Result<u32> {
         let reply = self.command(proto::SKS_LOCK_STATE, 0, &user_id.to_le_bytes(), 4)?;
         let bytes = proto::data(&reply)?;
-        ensure!(bytes.len() >= 4, "short lock state");
+        ensure!(bytes.len() == 4, "invalid lock state length: {}", bytes.len());
         Ok(u32::from_le_bytes(bytes[0..4].try_into().unwrap()))
     }
 
@@ -213,8 +258,11 @@ impl Session {
         // Commands reply promptly; a long block here only happens on a link
         // that died under us (a suspend), so keep it short enough that the
         // caller notices well within fprintd's own wait rather than after 30s.
-        self.stream.set_read_timeout(Some(Duration::from_secs(8)))?;
+        let deadline = Instant::now() + Duration::from_secs(8);
         loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            ensure!(!remaining.is_zero(), "BiometricKit command reply timed out");
+            self.stream.set_read_timeout(Some(remaining))?;
             let incoming = wire::receive_plist(&mut self.stream)?;
             let (is_reply, received, body) = split_envelope(&incoming)?;
             if is_reply {
@@ -286,4 +334,104 @@ fn split_envelope(value: &Value) -> Result<(bool, String, Value)> {
     let reply = items[1].as_boolean().context("envelope flag missing")?;
     let id = items[2].as_string().context("envelope id missing")?.to_owned();
     Ok((reply, id, items[3].clone()))
+}
+
+#[cfg(test)]
+mod lock_state_tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::thread;
+
+    fn query_command(reply: Value, wrong_id: bool, inventory: bool) -> Result<u32> {
+        let listener = TcpListener::bind("127.0.0.1:0")?;
+        let client = TcpStream::connect(listener.local_addr()?)?;
+        let peer = thread::spawn(move || -> Result<()> {
+            let (mut stream, _) = listener.accept()?;
+            stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+            wire::send(&mut stream, wire::HELO, br#"{"BridgeXPCVersion":39}"#)?;
+            ensure!(wire::receive(&mut stream)?.kind == wire::HELO);
+            let incoming = wire::receive_plist(&mut stream)?;
+            let (is_reply, id, body) = split_envelope(&incoming)?;
+            ensure!(!is_reply);
+            // The first operation must be only the requested read for UID 501. Opening,
+            // resetting or calibrating the sensor would fail this contract.
+            let expected = Value::Array(vec![
+                Value::Integer(3.into()), Value::Integer(0.into()),
+                Value::Data(vec![0x42, 0x4d, if inventory { 0x42 } else { 0x27 }, 0, 1, 0, 0, 0,
+                    0xf5, 1, 0, 0]), Value::Integer(if inventory { 200.into() } else { 4.into() }),
+            ]);
+            ensure!(body == expected, "unexpected sensor operation");
+            wire::send_plist(&mut stream, &envelope(
+                if wrong_id { "unrelated-request" } else { &id }, true, reply,
+            ))?;
+            // A status probe ends here; no sensor operation may follow.
+            let mut byte = [0u8; 1];
+            use std::io::Read;
+            ensure!(stream.read(&mut byte)? == 0, "unexpected trailing operation");
+            Ok(())
+        });
+        let mut session = Session::from_stream(client)?;
+        let result = if inventory {
+            session.read_identities(501).map(|found| found.len() as u32)
+        } else {
+            session.sks_lock_state(501)
+        };
+        drop(session);
+        peer.join().expect("mock peer panicked")?;
+        result
+    }
+
+    fn query(reply: Value, wrong_id: bool) -> Result<u32> {
+        query_command(reply, wrong_id, false)
+    }
+
+    fn reply(status: u64, bytes: Vec<u8>) -> Value {
+        Value::Array(vec![Value::Integer(status.into()), Value::Data(bytes)])
+    }
+
+    #[test]
+    fn status_probe_rejects_automatic_uid_before_discovery() {
+        assert!(query_sks_lock_state(None, None, 0).is_err());
+    }
+
+    #[test]
+    fn cached_status_probe_rejects_invalid_port_before_discovery() {
+        for port in [0, 1, 49151] {
+            let error = query_sks_lock_state_at(None, None, 501, port).unwrap_err();
+            assert!(error.to_string().contains("invalid BiometricKit service port"));
+        }
+        assert!(query_sks_lock_state_at(None, None, 0, 50000).unwrap_err()
+            .to_string().contains("explicit macOS user id"));
+    }
+
+    #[test]
+    fn status_probe_sends_no_sensor_initialization() {
+        assert_eq!(query(reply(0, vec![0x1b, 0, 0, 0]), false).unwrap(), 0x1b);
+    }
+
+    #[test]
+    fn status_probe_rejects_error_and_malformed_payloads() {
+        assert!(query(reply(0xe00002c2, vec![0; 4]), false).is_err());
+        for size in [0, 3, 5, 8] {
+            assert!(query(reply(0, vec![0; size]), false).is_err());
+        }
+    }
+
+    #[test]
+    fn inventory_query_requires_valid_reply_without_initialization() {
+        let mut record = vec![0; 20];
+        record[0..4].copy_from_slice(&501u32.to_le_bytes());
+        assert_eq!(query_command(reply(0, record), false, true).unwrap(), 1);
+        assert_eq!(query_command(reply(0, Vec::new()), false, true).unwrap(), 0);
+        assert!(query_command(reply(0xe00002c2, Vec::new()), false, true).is_err());
+        for size in [19, 21, 220] {
+            assert!(query_command(reply(0, vec![0; size]), false, true).is_err());
+        }
+        assert!(query_command(reply(0, vec![0; 20]), true, true).is_err());
+    }
+
+    #[test]
+    fn status_probe_rejects_unrelated_reply() {
+        assert!(query(reply(0, vec![0; 4]), true).is_err());
+    }
 }

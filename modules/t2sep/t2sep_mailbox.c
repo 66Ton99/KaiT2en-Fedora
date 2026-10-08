@@ -58,34 +58,31 @@ int t2sep_mailbox_try_receive(struct t2sep_mailbox *mailbox,
 	return 0;
 }
 
-int t2sep_mailbox_receive(struct t2sep_mailbox *mailbox,
-			  struct t2sep_message *message, unsigned int timeout_ms)
+int t2sep_mailbox_receive_until(struct t2sep_mailbox *mailbox,
+				struct t2sep_message *message, ktime_t deadline)
 {
-	unsigned int waited_us = 0;
-	unsigned int timeout_us = timeout_ms * 1000;
-
-	while (t2sep_mailbox_inbox_empty(mailbox)) {
-		if (waited_us >= timeout_us)
+	for (;;) {
+		/* Scheduling can overshoot a requested sleep. Check real elapsed
+		 * time before touching the FIFO, including after every wakeup.
+		 */
+		if (ktime_compare(ktime_get(), deadline) >= 0)
 			return -ETIMEDOUT;
+		if (!t2sep_mailbox_inbox_empty(mailbox))
+			return t2sep_mailbox_try_receive(mailbox, message);
 		usleep_range(T2SEP_POLL_US, T2SEP_POLL_US * 2);
-		waited_us += T2SEP_POLL_US;
 	}
-
-	return t2sep_mailbox_try_receive(mailbox, message);
 }
 
-int t2sep_mailbox_send(struct t2sep_mailbox *mailbox,
-		       const struct t2sep_message *message,
-		       unsigned int timeout_ms)
+int t2sep_mailbox_send_until(struct t2sep_mailbox *mailbox,
+			     const struct t2sep_message *message,
+			     ktime_t deadline)
 {
-	unsigned int waited_us = 0;
-	unsigned int timeout_us = timeout_ms * 1000;
-
-	while (t2sep_mailbox_outbox_full(mailbox)) {
-		if (waited_us >= timeout_us)
+	for (;;) {
+		if (ktime_compare(ktime_get(), deadline) >= 0)
 			return -ETIMEDOUT;
+		if (!t2sep_mailbox_outbox_full(mailbox))
+			break;
 		usleep_range(T2SEP_POLL_US, T2SEP_POLL_US * 2);
-		waited_us += T2SEP_POLL_US;
 	}
 
 	writel(message->word[0], mailbox->base + T2SEP_OUTBOX_DATA + 0x0);

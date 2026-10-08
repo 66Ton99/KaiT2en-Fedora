@@ -19,3 +19,18 @@ install: all
 	depmod -a $(KVER)
 
 .PHONY: all clean install
+
+# Pure wire-contract tests; never load or contact SEP.
+HOSTCC ?= cc
+.PHONY: test-wire
+test-wire:
+	mkdir -p target
+	$(HOSTCC) -O2 -Wall -Wextra -Werror test-aks-wire.c -o target/test-aks-wire
+	./target/test-aks-wire
+
+# Exercise the production polling code with a fake clock and FIFO; no MMIO.
+.PHONY: test-mailbox
+test-mailbox:
+	mkdir -p target
+	rustc --edition=2024 -D warnings tests/test-mailbox.rs -o target/mailbox-runner
+	./target/mailbox-runner $(HOSTCC)
