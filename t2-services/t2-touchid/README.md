@@ -74,3 +74,19 @@ Rebooting or shutting down the x86 side does not power-cycle the T2. It only
 sleeps bridgeOS, so this survives Linux reboots and only needs doing again
 after a real T2 power loss or reset by forced shutdown. Then log into macOS
 once and the bridge picks it up on the next prompt, no restart needed.
+
+## Optional manual keybag unlock (experimental)
+
+An opt-in client using KaiT2en's existing t2sep transport is available under
+[unlock/](unlock/README.md). It is excluded from the default installation and
+completed an explicit keybag unlock and enrolled-finger verification on one
+MacBookPro16,1. It preserves stock fprintd and PAM; cold initialization and
+cross-OS DMA handoff remain unproven. See the linked README for build steps,
+manual invocation and lifecycle limits. After the one-time installation and
+private keybag import, `t2-touchid-unlock` uses configured default paths and
+requests sudo authorization itself; `--check-only` performs the local preflight.
+
+Manual unlock displays a risk warning and requires typing `yes` in the terminal
+at each launch. `t2-touchid-unlock --accept-risk` acknowledges the same warning
+without that confirmation prompt; other checks and password prompts remain.
+`--check-only` performs local checks without asking for risk confirmation.

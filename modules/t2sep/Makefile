@@ -7,10 +7,12 @@ PWD := $(shell pwd)
 MODDEST ?= /lib/modules/$(KVER)/updates
 
 all:
+	rm -f $(PWD)/*.o $(PWD)/*.ko $(PWD)/*.mod $(PWD)/*.mod.c $(PWD)/.*.cmd $(PWD)/Module.symvers $(PWD)/modules.order
 	$(MAKE) -C $(KDIR) M=$(PWD) modules
 
 clean:
 	$(MAKE) -C $(KDIR) M=$(PWD) clean
+	rm -rf $(PWD)/target
 	find $(PWD) -type f \( -name '*.o' -o -name '*.ko' -o -name '*.mod' -o -name '*.mod.c' -o -name '.*.cmd' -o -name 'Module.symvers' -o -name 'modules.order' \) -delete
 
 install: all
@@ -19,3 +21,18 @@ install: all
 	depmod -a $(KVER)
 
 .PHONY: all clean install
+
+# Pure wire-contract tests; never load or contact SEP.
+HOSTCC ?= cc
+.PHONY: test-wire
+test-wire:
+	mkdir -p target
+	$(HOSTCC) -O2 -Wall -Wextra -Werror test-aks-wire.c -o target/test-aks-wire
+	./target/test-aks-wire
+
+# Exercise the production polling code with a fake clock and FIFO; no MMIO.
+.PHONY: test-mailbox
+test-mailbox:
+	mkdir -p target
+	rustc --edition=2024 -D warnings tests/test-mailbox.rs -o target/mailbox-runner
+	./target/mailbox-runner $(HOSTCC)

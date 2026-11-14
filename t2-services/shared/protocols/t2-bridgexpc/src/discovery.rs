@@ -51,6 +51,24 @@ fn apple_ncm(path: &Path) -> bool {
     })
 }
 
+/// Inspect only local sysfs/proc state. No ping, sockets, helpers or device changes.
+pub fn ready_interface() -> Result<String> {
+    let interface = interface(None)?;
+    let path = Path::new("/sys/class/net").join(&interface);
+    let flags = fs::read_to_string(path.join("flags"))
+        .with_context(|| format!("Cannot read T2 interface flags: {}", path.display()))?;
+    let flags = u32::from_str_radix(flags.trim().trim_start_matches("0x"), 16)
+        .context("Invalid T2 interface flags")?;
+    ensure!(flags & libc::IFF_UP as u32 != 0,
+        "T2 interface {interface} is administratively down; bring up only this CDC-NCM interface before manual unlock");
+    let carrier = fs::read_to_string(path.join("carrier"))
+        .with_context(|| format!("Cannot inspect carrier for T2 interface {interface}"))?;
+    ensure!(carrier.trim() == "1",
+        "T2 interface {interface} has no carrier; BiometricKit/SKS cannot be reached. On affected T2 systems, prepare the installed t2_touchid_link module before manual unlock. No USB reset or SEP retry was performed");
+    ensure_link_local(&interface)?;
+    Ok(interface)
+}
+
 pub fn host(interface: &str, explicit: Option<String>) -> Result<Ipv6Addr> {
     ensure_link_local(interface)?;
     if let Some(host) = explicit {
@@ -71,12 +89,7 @@ pub fn host(interface: &str, explicit: Option<String>) -> Result<Ipv6Addr> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter(|entry| {
-                    !matches!(
-                        entry.get("state").and_then(|state| state.as_str()),
-                        Some("FAILED" | "INCOMPLETE")
-                    )
-                })
+                .filter(|entry| usable_neighbor_state(entry.get("state")))
                 .filter_map(|entry| entry.get("dst")?.as_str()?.split('%').next()?.parse().ok())
                 .filter(|address: &Ipv6Addr| (address.segments()[0] & 0xffc0) == 0xfe80)
                 .collect();
@@ -102,4 +115,38 @@ fn ensure_link_local(interface: &str) -> Result<()> {
         "interface {interface} has no IPv6 link-local address; enable IPv6 on the CDC-NCM link"
     );
     Ok(())
+}
+
+// iproute2 emits an array; accept the scalar format used by older producers too.
+// Missing, unknown, or unresolved states are not evidence of a usable peer.
+fn usable_neighbor_state(state: Option<&serde_json::Value>) -> bool {
+    let Some(state) = state else { return false };
+    let valid = |value: &serde_json::Value| {
+        matches!(value.as_str(), Some("REACHABLE" | "STALE" | "DELAY" | "PROBE" | "PERMANENT" | "NOARP"))
+    };
+    match state {
+        serde_json::Value::String(_) => valid(state),
+        serde_json::Value::Array(states) => !states.is_empty() && states.iter().all(valid),
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::usable_neighbor_state;
+    use serde_json::json;
+
+    #[test]
+    fn neighbor_states_reject_unresolved_iproute2_entries() {
+        for state in [json!(["FAILED"]), json!(["INCOMPLETE"]), json!("FAILED"),
+            json!("INCOMPLETE"), json!([]), json!(null), json!(["STALE", "FAILED"]),
+            json!(["UNKNOWN"])] {
+            assert!(!usable_neighbor_state(Some(&state)), "{state}");
+        }
+        assert!(!usable_neighbor_state(None));
+        for state in [json!(["REACHABLE"]), json!(["STALE"]), json!(["DELAY"]),
+            json!(["PROBE"]), json!(["PERMANENT"]), json!(["NOARP"]), json!("REACHABLE")] {
+            assert!(usable_neighbor_state(Some(&state)), "{state}");
+        }
+    }
 }

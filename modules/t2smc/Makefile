@@ -37,6 +37,7 @@ uninstall:
 
 clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(PWD) clean
+	rm -rf $(PWD)/target
 	find $(PWD) -type f \( -name '*.o' -o -name '*.ko' -o -name '*.mod' -o -name '*.mod.c' -o -name '.*.cmd' -o -name 'Module.symvers' -o -name 'modules.order' \) -delete
 
 .PHONY: all modules install uninstall clean
