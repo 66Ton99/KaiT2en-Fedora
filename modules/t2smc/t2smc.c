@@ -19,6 +19,8 @@
 #include <linux/math64.h>
 #include <linux/miscdevice.h>
 #include <linux/slab.h>
+#include <linux/version.h>
+#include <linux/dmi.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/hwmon.h>
@@ -35,6 +37,8 @@
 #include <linux/uaccess.h>
 #include <linux/watchdog.h>
 #include <linux/workqueue.h>
+
+#include "t2smc.h"
 
 /* MMIO register offsets for T2 SMC interface */
 #define T2SMC_IOMEM_KEY_DATA      0x0000
@@ -179,6 +183,10 @@ module_param(nowayout, bool, 0444);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 		 __MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+static bool bridgeos_boot;
+module_param(bridgeos_boot, bool, 0400);
+MODULE_PARM_DESC(bridgeos_boot, "Opt-in to commit BridgeOS boot state transition during probe (default: false)");
+
 /* Fan speed key formats */
 static const char *const fan_speed_fmt[] = {
 	"F%dAc",  /* actual speed      - idx 0 */
@@ -278,6 +286,7 @@ struct t2smc_device {
 	/* /dev/smc raw key access */
 	struct miscdevice miscdev;
 };
+
 
 /* -- MMIO helpers -- */
 static inline void iomem_clear_status(struct t2smc_device *t2)
@@ -1466,6 +1475,7 @@ static const struct attribute_group t2smc_bclm_group = {
 	.is_visible = t2smc_bclm_is_visible,
 };
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
 static int t2smc_psy_ext_get(struct power_supply *psy,
 			     const struct power_supply_ext *ext,
 			     void *data, enum power_supply_property psp,
@@ -1568,6 +1578,11 @@ static void t2smc_detach_battery(void *data)
 	power_supply_unregister_extension(psy, &t2smc_psy_ext);
 	power_supply_put(psy);
 }
+#else
+/* Kernel 6.12 lacks power_supply extensions. Use the hwmon limit attribute. */
+static void t2smc_attach_battery(struct t2smc_device *t2) { }
+static void t2smc_detach_battery(void *data) { }
+#endif
 
 enum t2smc_power_attr {
 	T2SMC_POWER_EVENT_COUNT,
@@ -3131,6 +3146,197 @@ static void t2smc_read_plimit_version(struct t2smc_device *t2)
 	}
 }
 
+struct t2smc_bridge_version {
+	u32 major;
+	u32 minor;
+	u32 build;
+	u32 patch;
+	u32 subpatch;
+};
+
+struct t2smc_efmv_v1 {
+	__le32 format_type;
+	__le32 major;
+	__le32 minor;
+	__le32 build;
+	__le32 patch;
+	__le32 subpatch;
+	__le32 reserved[2];
+} __packed;
+
+static_assert(sizeof(struct t2smc_efmv_v1) == 32);
+
+#define T2SMC_BOOT_STATUS_VERSION_COMMIT 17 /* BOOT_STATE_VERSION_CHECK_COMMIT */
+#define T2SMC_BOOT_STATUS_EXITBS         13 /* BOOT_STATE_EXITBS */
+#define T2SMC_BOOT_POLICY_NOT_READY       0
+#define T2SMC_BOOT_POLICY_OK              1
+
+static int t2smc_get_bridge_version(struct t2smc_bridge_version *ver)
+{
+	const char *bios_ver = dmi_get_system_info(DMI_BIOS_VERSION);
+	const char *p;
+	unsigned int maj = 0, min = 0, bld = 0, ptch = 0, sub = 0;
+
+	if (!bios_ver)
+		return -ENODEV;
+
+	p = strstr(bios_ver, "iBridge:");
+	if (!p)
+		return -ENODEV;
+	p += strlen("iBridge:");
+	while (*p == ' ')
+		p++;
+
+	if (sscanf(p, "%u.%u.%u.%u.%u", &maj, &min, &bld, &ptch, &sub) < 3)
+		return -EINVAL;
+
+	ver->major = maj;
+	ver->minor = min;
+	ver->build = bld;
+	ver->patch = ptch;
+	ver->subpatch = sub;
+	return 0;
+}
+
+int t2smc_commit_bridgeos_boot(struct t2smc_device *t2)
+{
+	struct t2smc_bridge_version ver;
+	struct t2smc_efmv_v1 efmv = { };
+	bool has_key = false;
+	u8 efms = 0, val = 0;
+	int ret, i;
+
+	if (!t2)
+		return -ENODEV;
+
+	ret = t2smc_has_key(t2, "EFMS", &has_key);
+	if (ret || !has_key)
+		return 0;
+
+	ret = t2smc_has_key(t2, T2SMC_X86_EFI_STATE, &has_key);
+	if (ret || !has_key)
+		return 0;
+
+	ret = t2smc_read_key(t2, "EFMS", &efms, 1);
+	if (ret) {
+		dev_warn(t2->dev, "failed to read EFMS: %d\n", ret);
+		return ret;
+	}
+	ret = t2smc_read_key(t2, T2SMC_X86_EFI_STATE, &val, 1);
+	if (ret) {
+		dev_warn(t2->dev, "failed to read EFBS: %d\n", ret);
+		return ret;
+	}
+	if (val == T2SMC_BOOT_STATUS_EXITBS) {
+		dev_info(t2->dev, "bridgeOS already past ExitBootServices (EFMS=%u EFBS=%u); refusing backward state transition\n",
+			 efms, val);
+		return 0;
+	}
+	dev_info(t2->dev, "initiating bridgeOS boot commit (initial EFMS=%u EFBS=%u)\n", efms, val);
+
+	ret = t2smc_get_bridge_version(&ver);
+	if (!ret) {
+		efmv.format_type = cpu_to_le32(0x00000101);
+		efmv.major = cpu_to_le32(ver.major);
+		efmv.minor = cpu_to_le32(ver.minor);
+		efmv.build = cpu_to_le32(ver.build);
+		efmv.patch = cpu_to_le32(ver.patch);
+		efmv.subpatch = cpu_to_le32(ver.subpatch);
+
+		if (t2smc_has_key(t2, "EFMV", &has_key) == 0 && has_key) {
+			ret = t2smc_write_key(t2, "EFMV", (const u8 *)&efmv, sizeof(efmv));
+			if (ret)
+				dev_warn(t2->dev, "failed to write EFMV: %d\n", ret);
+			else
+				dev_info(t2->dev, "wrote EFMV bridgeOS version %u.%u.%u.%u.%u\n",
+					 ver.major, ver.minor, ver.build, ver.patch, ver.subpatch);
+		}
+	} else {
+		dev_warn(t2->dev, "could not parse bridgeOS version from DMI: %d\n", ret);
+	}
+
+	/* Clear EFMS to 0 (BootPolicyNotReady) */
+	val = T2SMC_BOOT_POLICY_NOT_READY;
+	ret = t2smc_write_key(t2, "EFMS", &val, 1);
+	if (ret)
+		dev_warn(t2->dev, "failed to clear EFMS: %d\n", ret);
+
+	/* Commit EFBS = 17 (BOOT_STATE_VERSION_CHECK_COMMIT) */
+	val = T2SMC_BOOT_STATUS_VERSION_COMMIT;
+	ret = t2smc_write_key(t2, T2SMC_X86_EFI_STATE, &val, 1);
+	if (ret) {
+		dev_err(t2->dev, "failed to write EFBS commit: %d\n", ret);
+		return ret;
+	}
+
+	/* Wait for bridgeOS to evaluate boot policy and set EFMS = 1 */
+	for (i = 0; i < 50; i++) {
+		msleep(20);
+		efms = 0;
+		ret = t2smc_read_key(t2, "EFMS", &efms, 1);
+		if (ret == 0 && efms == T2SMC_BOOT_POLICY_OK)
+			break;
+	}
+
+	if (ret == 0 && efms == T2SMC_BOOT_POLICY_OK) {
+		dev_info(t2->dev, "bridgeOS acknowledged boot policy OK (EFMS=1 in %d ms)\n", (i + 1) * 20);
+		/* Hand off to OS: set EFBS = 13 (BOOT_STATE_EXITBS) */
+		val = T2SMC_BOOT_STATUS_EXITBS;
+		ret = t2smc_write_key(t2, T2SMC_X86_EFI_STATE, &val, 1);
+		if (ret)
+			dev_warn(t2->dev, "failed to write EFBS EXITBS: %d\n", ret);
+		return 0;
+	}
+
+	dev_warn(t2->dev, "bridgeOS boot policy wait timed out (ret=%d EFMS=%u)\n", ret, efms);
+	return -ETIMEDOUT;
+}
+
+static ssize_t bridgeos_boot_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	u8 efms = 0, efbs = 0;
+	int ret_efms, ret_efbs;
+
+	ret_efms = t2smc_read_key(t2, "EFMS", &efms, 1);
+	ret_efbs = t2smc_read_key(t2, T2SMC_X86_EFI_STATE, &efbs, 1);
+
+	return sysfs_emit(buf, "EFMS=%d (%s) EFBS=%d\n",
+			  ret_efms ? -1 : efms,
+			  efms == T2SMC_BOOT_POLICY_OK ? "BootPolicyOk" : "NotReady",
+			  ret_efbs ? -1 : efbs);
+}
+
+static ssize_t bridgeos_boot_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count)
+{
+	struct t2smc_device *t2 = dev_get_drvdata(dev);
+	int ret;
+
+	ret = t2smc_commit_bridgeos_boot(t2);
+	if (ret)
+		return ret;
+	return count;
+}
+
+static DEVICE_ATTR_RW(bridgeos_boot);
+
+static struct attribute *t2smc_dev_attrs[] = {
+	&dev_attr_bridgeos_boot.attr,
+	NULL,
+};
+
+static const struct attribute_group t2smc_dev_group = {
+	.attrs = t2smc_dev_attrs,
+};
+
+static const struct attribute_group *t2smc_dev_groups[] = {
+	&t2smc_dev_group,
+	NULL,
+};
+
 /* -- Platform driver callbacks -- */
 static int t2smc_probe(struct platform_device *pdev)
 {
@@ -3213,6 +3419,9 @@ static int t2smc_probe(struct platform_device *pdev)
 	t2smc_log_plimit_keys(t2);
 	t2smc_read_plimit_version(t2);
 	dev_info(t2->dev, "PLimit data version %u\n", t2->plimit_version);
+
+	if (bridgeos_boot)
+		t2smc_commit_bridgeos_boot(t2);
 
 	ret = t2smc_register_hwmon(t2);
 	if (ret)
@@ -3316,6 +3525,7 @@ static struct platform_driver t2smc_driver = {
 		.name = "t2smc",
 		.acpi_match_table = t2smc_ids,
 		.pm = pm_sleep_ptr(&t2smc_pm_ops),
+		.dev_groups = t2smc_dev_groups,
 	},
 };
 

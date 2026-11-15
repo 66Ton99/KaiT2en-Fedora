@@ -1,0 +1,14 @@
+[Unit]
+Description=Prepare the internal Apple T2 CDC-NCM network link
+Wants=NetworkManager.service
+After=NetworkManager.service systemd-udev-trigger.service
+Before=kait2en-t2-touchid.service
+
+[Service]
+Type=oneshot
+ExecStart=@LIBEXECDIR@/t2-touchid-link-ready
+TimeoutStartSec=60
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

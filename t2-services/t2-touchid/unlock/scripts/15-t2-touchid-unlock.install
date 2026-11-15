@@ -1,0 +1,23 @@
+#!/bin/bash
+set -euo pipefail
+
+case "${1:-}" in add|remove) ;; *) exit 0;; esac
+version=${2:-}
+[[ -n "$version" ]] || exit 0
+
+ASSET_DIR="/usr/local/libexec/kait2en/touchid-unlock"
+PREP_SCRIPT="$ASSET_DIR/prepare-kernel-module.sh"
+
+if [[ $1 == remove ]]; then
+    rm -rf "$ASSET_DIR/$version"
+    exit 0
+fi
+
+if [[ -x "$PREP_SCRIPT" ]]; then
+    printf 'T2: preparing Touch ID unlock module for kernel %s\n' "$version"
+    mkdir -p "$ASSET_DIR" /var/log
+    umask 077
+    if ! "$PREP_SCRIPT" "$version" >> /var/log/t2-touchid-kernel-install.log 2>&1; then
+        printf 'T2: Touch ID module preparation failed for %s. See /var/log/t2-touchid-kernel-install.log\n' "$version" >&2
+    fi
+fi

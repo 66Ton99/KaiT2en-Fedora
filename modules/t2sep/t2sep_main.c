@@ -4,17 +4,19 @@
  *
  * Reaches the SEP mailbox on device 106b:1802 and, with register_ool=1,
  * exposes /dev/t2sep for opaque request/response exchanges with the
- * AppleKeyStore endpoint. Nothing in KAIT2EN consumes it yet, so it is not
- * shipped and does not autoload; see README.md.
+ * AppleKeyStore endpoint. An opt-in manual Touch ID unlock client consumes
+ * it; it is not installed by default and does not autoload. See README.md.
  */
 
 #include <linux/device.h>
+#include <linux/delay.h>
 #include <linux/ctype.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
 #include <linux/dma-mapping.h>
 #include <linux/jiffies.h>
 #include <linux/ktime.h>
+#include <linux/timekeeping.h>
 #include <linux/module.h>
 #include <linux/mutex.h>
 #include <linux/pci.h>
@@ -27,19 +29,20 @@
 #include <crypto/sha2.h>
 
 #include "t2sep_mailbox.h"
+#include "t2sep_aks_wire.h"
 #include "t2sep_uapi.h"
+
 
 #define T2SEP_VENDOR_ID   0x106b
 #define T2SEP_DEVICE_ID   0x1802
 #define T2SEP_MAILBOX_BAR 4
-#define T2SEP_DMA_BITS    44
 #define T2SEP_OOL_SIZE    SZ_16K
 
 #define T2SEP_CONTROL_ENDPOINT 0
 #define T2SEP_AKS_ENDPOINT     7
 #define T2SEP_SET_OOL_IN       2
 #define T2SEP_SET_OOL_OUT      3
-#define T2SEP_CONTROL_TIMEOUT  5000
+#define T2SEP_CONTROL_TIMEOUT  15000
 #define T2SEP_MAX_SKIPPED      32
 #define T2SEP_DISCOVERY_ENDPOINT 0xfd
 #define T2SEP_DISCOVERY_MAX      32
@@ -47,10 +50,10 @@
 #define T2SEP_DISCOVERY_POLL_MS  10
 #define T2SEP_DISCOVERY_MAX_MS   60000
 
-#define T2SEP_IOP_RESET          0x8040
-#define T2SEP_IOP_RUN            0x8048
-#define T2SEP_IOP_CONTROL        0x8028
-#define T2SEP_IOP_CONTROL_START  5
+#define T2SEP_IOP_START_WRITE0          0x8040
+#define T2SEP_IOP_START_WRITE1            0x8048
+#define T2SEP_IOP_START_WRITE2        0x8028
+#define T2SEP_IOP_START_WRITE2_VALUE  5
 
 #define T2SEP_TESTING_ENDPOINT   0x0f
 #define T2SEP_TEST_QUERY         0x09
@@ -62,6 +65,10 @@
 #define T2SEP_AKS_WIRE_HEADER_SIZE (sizeof(__le32) + T2SEP_AKS_HEADER_SIZE)
 #define T2SEP_AKS_CAP_REQUEST_SIZE 0x5c
 
+#define T2SEP_AKS_HEADER_V2_SIZE      0x50
+#define T2SEP_AKS_WIRE_HEADER_V2_SIZE (sizeof(__le32) + T2SEP_AKS_HEADER_V2_SIZE)
+#define T2SEP_AKS_CAP_REQUEST_V2_SIZE (T2SEP_AKS_WIRE_HEADER_V2_SIZE + 16)
+
 struct t2sep_aks_header {
 	u8 digest[16];
 	__le32 version;
@@ -72,6 +79,18 @@ struct t2sep_aks_header {
 } __packed;
 
 static_assert(sizeof(struct t2sep_aks_header) == T2SEP_AKS_HEADER_SIZE);
+
+struct t2sep_aks_header_v2 {
+	u8 digest[16];
+	__le32 version;
+	__le64 usec_time;
+	__le32 flags;
+	__le64 clock_id;
+	u8 platform_data[0x20];
+	__le64 calendar_time;
+} __packed;
+
+static_assert(sizeof(struct t2sep_aks_header_v2) == T2SEP_AKS_HEADER_V2_SIZE);
 
 struct t2sep_discovery_entry {
 	u32 name;
@@ -101,6 +120,7 @@ struct t2sep_device {
 	u32 testing_reply_word2;
 	bool control_complete;
 	u32 control_result;
+	u32 control_word3;
 	void *ool_in;
 	dma_addr_t ool_in_dma;
 	void *ool_out;
@@ -108,12 +128,21 @@ struct t2sep_device {
 	bool ool_in_registered;
 	bool ool_out_registered;
 	bool ool_dma_retained;
+	bool ool_exchange_failed;
+	u8 next_transaction;
+	u8 next_control_tag;
 	bool capabilities_complete;
 	u64 capabilities;
 	u16 capabilities_reply_length;
 	struct miscdevice miscdev;
 	bool miscdev_registered;
 };
+
+/* Deliberate local validation only; excluded from automatic installation. */
+static bool manual_unlock_trial;
+module_param(manual_unlock_trial, bool, 0400);
+MODULE_PARM_DESC(manual_unlock_trial,
+	"Explicit manual keybag trial with initial capabilities; no IOP/reset/discovery probes (default: false)");
 
 static bool register_ool;
 module_param(register_ool, bool, 0400);
@@ -160,13 +189,18 @@ static void t2sep_record_discovery(struct t2sep_device *sep,
 
 static void t2sep_start_iop(struct t2sep_device *sep)
 {
-	/* IOP startup: clear reset, run, then start. */
-	writel(0, sep->bar + T2SEP_IOP_RESET);
-	writel(1, sep->bar + T2SEP_IOP_RUN);
+	/* Recovered writes from AppleSEPIntelIOP::_startCPUGated().
+	 * Their individual register semantics are not established. Apple also
+	 * enables two host IRQ sources; this transport polls the mailbox instead.
+	 * This is not a proven reset or recovery for retained OOL ownership.
+	 */
+	writel(0, sep->bar + T2SEP_IOP_START_WRITE0);
+	writel(1, sep->bar + T2SEP_IOP_START_WRITE1);
 	wmb();
-	writel(T2SEP_IOP_CONTROL_START, sep->bar + T2SEP_IOP_CONTROL);
+	writel(T2SEP_IOP_START_WRITE2_VALUE, sep->bar + T2SEP_IOP_START_WRITE2);
 	/* Flush posted PCI writes before returning to the discovery poller. */
-	readl(sep->bar + T2SEP_IOP_CONTROL);
+	readl(sep->bar + T2SEP_IOP_START_WRITE2);
+	usleep_range(10000, 20000);
 	sep->sep_start_issued = true;
 	dev_info(&sep->pdev->dev,
 		 "issued Apple SEP IOP startup sequence\n");
@@ -177,6 +211,7 @@ static int t2sep_probe_testing(struct t2sep_device *sep)
 	struct t2sep_message request = { };
 	struct t2sep_message reply;
 	unsigned int skipped = 0;
+	ktime_t deadline;
 	u8 endpoint;
 	u8 sequence;
 	int ret;
@@ -186,14 +221,15 @@ static int t2sep_probe_testing(struct t2sep_device *sep)
 		(T2SEP_TEST_QUERY << 8) | (T2SEP_TEST_SEQUENCE << 16);
 
 	mutex_lock(&sep->mailbox_lock);
-	ret = t2sep_mailbox_send(&sep->mailbox, &request,
-				 T2SEP_CONTROL_TIMEOUT);
+	deadline = ktime_add_ms(ktime_get(), T2SEP_CONTROL_TIMEOUT);
+	ret = t2sep_mailbox_send_until(&sep->mailbox, &request,
+				 deadline);
 	if (ret)
 		goto out_unlock;
 
 	for (;;) {
-		ret = t2sep_mailbox_receive(&sep->mailbox, &reply,
-					      T2SEP_CONTROL_TIMEOUT);
+		ret = t2sep_mailbox_receive_until(&sep->mailbox, &reply,
+					      deadline);
 		if (ret)
 			goto out_unlock;
 		endpoint = reply.word[0] & 0xff;
@@ -228,27 +264,26 @@ static int t2sep_probe_control(struct t2sep_device *sep)
 	struct t2sep_message request = { };
 	struct t2sep_message reply;
 	unsigned int skipped = 0;
-	u8 endpoint;
-	u8 tag = 1;
+	ktime_t deadline;
+	u8 tag;
 	int ret;
 
-	/* Control NOP: zero message plus the tag. */
-	request.word[0] = tag << 8;
-
+	/* The control tag belongs to the EP0 dialogue, including later OOL calls. */
 	mutex_lock(&sep->mailbox_lock);
-	ret = t2sep_mailbox_send(&sep->mailbox, &request,
-				 T2SEP_CONTROL_TIMEOUT);
+	deadline = ktime_add_ms(ktime_get(), T2SEP_CONTROL_TIMEOUT);
+	tag = t2sep_next_transaction(&sep->next_control_tag);
+	request.word[0] = t2sep_control_request_word(0, 0, tag);
+	ret = t2sep_mailbox_send_until(&sep->mailbox, &request,
+				 deadline);
 	if (ret)
 		goto out_unlock;
 
 	for (;;) {
-		ret = t2sep_mailbox_receive(&sep->mailbox, &reply,
-					      T2SEP_CONTROL_TIMEOUT);
+		ret = t2sep_mailbox_receive_until(&sep->mailbox, &reply,
+					      deadline);
 		if (ret)
 			goto out_unlock;
-		endpoint = reply.word[0] & 0xff;
-		if (endpoint == T2SEP_CONTROL_ENDPOINT &&
-		    ((reply.word[0] >> 8) & 0xff) == tag)
+		if (t2sep_control_reply_matches(reply.word[0], tag, 0))
 			break;
 		t2sep_record_discovery(sep, &reply);
 		if (++skipped == T2SEP_MAX_SKIPPED) {
@@ -258,6 +293,7 @@ static int t2sep_probe_control(struct t2sep_device *sep)
 	}
 
 	sep->control_result = reply.word[1];
+	sep->control_word3 = reply.word[3];
 	sep->control_complete = true;
 	dev_info(&sep->pdev->dev,
 		 "SEP control NOP replied: result=%#x word2=%#x word3=%#x\n",
@@ -373,46 +409,44 @@ static void t2sep_discovery_work(struct work_struct *work)
 	mutex_unlock(&sep->discovery_lock);
 }
 
-static int t2sep_control(struct t2sep_device *sep, u8 opcode, u8 tag,
+static int t2sep_control(struct t2sep_device *sep, u8 opcode,
 			 dma_addr_t dma, size_t size, bool *posted)
 {
 	struct t2sep_message request = { };
 	struct t2sep_message reply;
 	unsigned int skipped = 0;
+	ktime_t deadline;
 	u8 endpoint;
-	u8 reply_tag;
+	u8 tag;
 	int ret;
 
 	*posted = false;
-	if (!IS_ALIGNED(dma, PAGE_SIZE) || dma >> T2SEP_DMA_BITS || size > U32_MAX)
+	if (!IS_ALIGNED(dma, PAGE_SIZE) || size > U32_MAX ||
+	    !t2sep_ool_dma_range_valid(dma, size))
 		return -ERANGE;
 
-	/*
-	 * The high byte of word[0] names the endpoint the OOL buffers are being
-	 * registered for. It is ool_endpoint, not necessarily AKS: the same
-	 * control dialogue registers buffers for the credential endpoint too.
-	 */
-	request.word[0] = T2SEP_CONTROL_ENDPOINT | (tag << 8) |
-		(opcode << 16) | ((ool_endpoint & 0xff) << 24);
 	request.word[1] = lower_32_bits(dma >> PAGE_SHIFT);
 	request.word[2] = size;
 
 	mutex_lock(&sep->mailbox_lock);
-	ret = t2sep_mailbox_send(&sep->mailbox, &request,
-				 T2SEP_CONTROL_TIMEOUT);
+	deadline = ktime_add_ms(ktime_get(), T2SEP_CONTROL_TIMEOUT);
+	tag = t2sep_next_transaction(&sep->next_control_tag);
+	request.word[0] = t2sep_control_request_word(opcode, ool_endpoint, tag);
+	ret = t2sep_mailbox_send_until(&sep->mailbox, &request,
+				 deadline);
 	if (ret)
 		goto out_unlock;
 	*posted = true;
 
 	for (;;) {
-		ret = t2sep_mailbox_receive(&sep->mailbox, &reply,
-					      T2SEP_CONTROL_TIMEOUT);
+		ret = t2sep_mailbox_receive_until(&sep->mailbox, &reply,
+					      deadline);
 		if (ret)
 			goto out_unlock;
 
-		endpoint = reply.word[0] & GENMASK(4, 0);
-		reply_tag = (reply.word[0] >> 8) & 0xff;
-		if (endpoint == T2SEP_CONTROL_ENDPOINT && reply_tag == tag)
+		endpoint = reply.word[0] & 0xff;
+		if (t2sep_control_reply_matches(reply.word[0], tag,
+					       ool_endpoint))
 			break;
 
 		dev_dbg(&sep->pdev->dev,
@@ -460,10 +494,10 @@ static int t2sep_register_ool(struct t2sep_device *sep)
 				     "control NOP handshake failed; refusing OOL registration\n");
 
 	ret = dma_set_mask_and_coherent(&sep->pdev->dev,
-					 DMA_BIT_MASK(T2SEP_DMA_BITS));
+					 DMA_BIT_MASK(T2SEP_OOL_DMA_BITS));
 	if (ret)
 		return dev_err_probe(&sep->pdev->dev, ret,
-				     "44-bit DMA is unavailable\n");
+				     "34-bit OOL DMA is unavailable\n");
 
 	sep->ool_in = dma_alloc_coherent(&sep->pdev->dev, T2SEP_OOL_SIZE,
 					 &sep->ool_in_dma, GFP_KERNEL);
@@ -478,19 +512,25 @@ static int t2sep_register_ool(struct t2sep_device *sep)
 	}
 
 	if (!IS_ALIGNED(sep->ool_in_dma, PAGE_SIZE) ||
-	    !IS_ALIGNED(sep->ool_out_dma, PAGE_SIZE)) {
+	    !IS_ALIGNED(sep->ool_out_dma, PAGE_SIZE) ||
+	    !t2sep_ool_dma_range_valid(sep->ool_in_dma, T2SEP_OOL_SIZE) ||
+	    !t2sep_ool_dma_range_valid(sep->ool_out_dma, T2SEP_OOL_SIZE)) {
 		ret = -ERANGE;
-		dev_err(&sep->pdev->dev, "SEP OOL DMA buffers are not page aligned\n");
+		dev_err(&sep->pdev->dev, "SEP OOL DMA buffers violate alignment or 34-bit address range\n");
 		goto err_free;
 	}
 
 	pci_set_master(sep->pdev);
-	ret = t2sep_control(sep, T2SEP_SET_OOL_IN, 1,
+	ret = t2sep_control(sep, T2SEP_SET_OOL_IN,
 			    sep->ool_in_dma, T2SEP_OOL_SIZE, &posted);
 	if (ret) {
-		if (posted && ret != -EREMOTEIO) {
+		/* The SEPD shim reduces several lower-level failures to a small
+		 * result code. A negative acknowledgement is not a proven rollback
+		 * of DMA registration; retain any buffer whose address was posted.
+		 */
+		if (posted) {
 			dev_err(&sep->pdev->dev,
-				"input registration result is unknown: %d; retaining DMA memory until reboot\n",
+				"AKS input registration failed after posting: %d; retaining DMA, further probes forbidden\n",
 				ret);
 			sep->ool_dma_retained = true;
 			__module_get(THIS_MODULE);
@@ -503,7 +543,7 @@ static int t2sep_register_ool(struct t2sep_device *sep)
 	}
 	sep->ool_in_registered = true;
 
-	ret = t2sep_control(sep, T2SEP_SET_OOL_OUT, 2,
+	ret = t2sep_control(sep, T2SEP_SET_OOL_OUT,
 			    sep->ool_out_dma, T2SEP_OOL_SIZE, &posted);
 	if (ret) {
 		dev_err(&sep->pdev->dev,
@@ -530,16 +570,22 @@ err_free:
 	return ret;
 }
 
-static int t2sep_aks_digest(void *message, size_t length)
+static int t2sep_aks_digest(void *message, size_t length, size_t payload_offset)
 {
 	struct t2sep_aks_header *header = message + sizeof(__le32);
 	struct crypto_shash *tfm;
 	struct shash_desc *desc;
 	u8 digest[SHA256_DIGEST_SIZE];
+	size_t header_digest_span;
 	int ret;
 
-	if (length < T2SEP_AKS_WIRE_HEADER_SIZE)
+	if (payload_offset < T2SEP_AKS_WIRE_HEADER_SIZE || length < payload_offset)
 		return -EINVAL;
+
+	header_digest_span =
+		(get_unaligned_le32((u8 *)header + sizeof(header->digest)) == 2 &&
+		 get_unaligned_le32(message) == 0x50) ?
+		0x50 : T2SEP_AKS_HEADER_SIZE;
 
 	tfm = crypto_alloc_shash("sha256", 0, 0);
 	if (IS_ERR(tfm))
@@ -555,11 +601,11 @@ static int t2sep_aks_digest(void *message, size_t length)
 	if (!ret)
 		ret = crypto_shash_update(desc,
 					 (u8 *)header + sizeof(header->digest),
-					 T2SEP_AKS_HEADER_SIZE - sizeof(header->digest));
+					 header_digest_span - sizeof(header->digest));
 	if (!ret)
 		ret = crypto_shash_update(desc,
-					 message + T2SEP_AKS_WIRE_HEADER_SIZE,
-					 length - T2SEP_AKS_WIRE_HEADER_SIZE);
+					 message + payload_offset,
+					 length - payload_offset);
 	if (!ret)
 		ret = crypto_shash_final(desc, digest);
 	if (!ret)
@@ -578,74 +624,109 @@ static int t2sep_aks_digest(void *message, size_t length)
  * length is returned in reply_length.
  */
 static int t2sep_ool_exchange(struct t2sep_device *sep, u8 endpoint,
-			      u8 operation, u32 request_length, u16 *reply_length)
+			      u8 operation, u32 request_length, u16 *reply_length,
+			      bool *completed)
 {
 	struct t2sep_message request = { };
 	struct t2sep_message reply;
 	unsigned int skipped = 0;
 	bool credential = endpoint != T2SEP_AKS_ENDPOINT;
+	ktime_t deadline;
+	u8 transaction;
 	int ret;
 
-	/*
-	 * Two descriptor shapes.
-	 *
-	 * AKS (endpoint 7): word0 = endpoint | op<<8 | 1<<16, word1 = len<<16.
-	 *
-	 * Credential endpoint (10, scrd): a live dtrace of the mailbox
-	 * shows word0 = endpoint | 1<<8 | len<<16, word1 = 0. byte1 is a constant 1
-	 * and byte2 is the OOL request length; the command id is never in the
-	 * mailbox, it lives in the DRCS framing in the OOL input. The reply carries
-	 * the same shape, with byte2 holding the reply length (so <= 255 bytes), and
-	 * word1 is a sequence tag that is not the length. The command byte is not
-	 * echoed, so the reply is matched on the endpoint and the constant byte1.
-	 */
+	*completed = false;
+	if (sep->ool_exchange_failed)
+		return -EIO;
+
 	if (credential) {
+		transaction = 1;
 		request.word[0] = endpoint | (1 << 8) | (request_length << 16);
 		request.word[1] = 0;
 	} else {
-		request.word[0] = endpoint | (operation << 8) | (1 << 16);
+		transaction = t2sep_next_transaction(&sep->next_transaction);
+		request.word[0] = endpoint | (operation << 8) | (transaction << 16);
 		request.word[1] = request_length << 16;
 	}
 
+	deadline = ktime_add_ms(ktime_get(), T2SEP_CONTROL_TIMEOUT);
+
 	/* Publish the coherent request before notifying SEP through MMIO. */
 	dma_wmb();
-	ret = t2sep_mailbox_send(&sep->mailbox, &request, T2SEP_CONTROL_TIMEOUT);
-	if (ret)
+	ret = t2sep_mailbox_send_until(&sep->mailbox, &request, deadline);
+	if (ret) {
+		sep->ool_exchange_failed = true;
+		dev_warn(&sep->pdev->dev,
+			 "AKS request not posted: error=%d endpoint=%u operation=%#x transaction=%u outbox=%#x\n",
+			 ret, endpoint, operation, transaction,
+			 t2sep_mailbox_outbox_status(&sep->mailbox));
 		return ret;
+	}
 
 	for (;;) {
-		ret = t2sep_mailbox_receive(&sep->mailbox, &reply,
-					    T2SEP_CONTROL_TIMEOUT);
-		if (ret)
+		ret = t2sep_mailbox_receive_until(&sep->mailbox, &reply,
+					    deadline);
+		if (ret) {
+			sep->ool_exchange_failed = true;
+			/* Descriptor metadata only: never log OOL contents or DMA addresses. */
+			dev_warn(&sep->pdev->dev,
+				 "AKS reply wait failed: error=%d endpoint=%u operation=%#x transaction=%u ignored=%u inbox=%#x outbox=%#x\n",
+				 ret, endpoint, operation, transaction, skipped,
+				 t2sep_mailbox_inbox_status(&sep->mailbox),
+				 t2sep_mailbox_outbox_status(&sep->mailbox));
 			return ret;
+		}
 		if (credential) {
 			if ((reply.word[0] & 0xff) == endpoint &&
 			    ((reply.word[0] >> 8) & 0xff) == 1)
 				break;
-		} else if ((reply.word[0] & 0xff) == endpoint &&
-			   ((reply.word[0] >> 8) & 0x7f) == operation &&
-			   ((reply.word[0] >> 16) & 0xff) == 1) {
+		} else if (t2sep_aks_classify_reply(reply.word[0], endpoint, operation,
+					    transaction,
+					    !sep->capabilities_complete) !=
+		    T2SEP_AKS_OTHER) {
 			break;
 		}
-		if (++skipped == T2SEP_MAX_SKIPPED)
+		/* Ignore asynchronous events from SEP (e.g. state change on endpoint 7). */
+		if ((reply.word[0] & 0xff) == T2SEP_AKS_ENDPOINT &&
+		    ((reply.word[0] >> 8) & 0xff) == 0) {
+			dev_dbg(&sep->pdev->dev,
+				"AKS event notification received while waiting for op %#x\n",
+				operation);
+			continue;
+		}
+		/* Bound diagnostic output. Descriptor fields only; no payload,
+		 * buffer address or arbitrary mailbox data words are exposed.
+		 */
+		if (skipped < 8)
+			dev_warn(&sep->pdev->dev,
+				 "AKS unmatched reply: endpoint=%u operation=%#x transaction=%u status=%d expected_endpoint=%u expected_operation=%#x expected_transaction=%u\n",
+				 reply.word[0] & 0xff, (reply.word[0] >> 8) & 0xff,
+				 (reply.word[0] >> 16) & 0xff,
+				 (int)(s8)(reply.word[0] >> 24), endpoint,
+				 operation, transaction);
+		if (++skipped == T2SEP_MAX_SKIPPED) {
+			sep->ool_exchange_failed = true;
 			return -EOVERFLOW;
+		}
 	}
-	/* SEP completed the descriptor before publishing the OOL response. */
+	/* Order coherent-buffer reads after the matching reply descriptor.
+	 * This barrier is not a peer-DMA teardown acknowledgement.
+	 */
 	dma_rmb();
 
-	if (credential)
+	*completed = true;
+	if (credential) {
 		dev_info(&sep->pdev->dev,
 			 "cred reply: w0=%#010x w1=%#010x w2=%#010x w3=%#010x ool_out=%16ph\n",
 			 reply.word[0], reply.word[1], reply.word[2], reply.word[3],
 			 sep->ool_out);
+		*reply_length = (reply.word[0] >> 16) & 0xff;
+		return 0;
+	}
 
-	/*
-	 * AKS carries the reply length in word1 bits 16+. The credential reply puts
-	 * it in word0 byte2 (getMailbox capture: len 21 and 176 landed there, word1
-	 * is a sequence tag). A command with no payload replies with byte2 == 0.
-	 */
-	*reply_length = credential ? ((reply.word[0] >> 16) & 0xff)
-				   : (reply.word[1] >> 16);
+	if ((s8)(reply.word[0] >> 24))
+		return -EREMOTEIO;
+	*reply_length = reply.word[1] >> 16;
 	return 0;
 }
 
@@ -655,6 +736,8 @@ static int t2sep_probe_capabilities(struct t2sep_device *sep)
 	u8 expected_digest[16];
 	u8 *payload;
 	u16 reply_length;
+	unsigned int payload_offset;
+	bool completed = false;
 	int ret;
 
 	if (!sep->ool_in_registered || !sep->ool_out_registered)
@@ -672,21 +755,27 @@ static int t2sep_probe_capabilities(struct t2sep_device *sep)
 	put_unaligned_le32(0, payload);
 	put_unaligned_le64(1, payload + sizeof(__le32));
 	put_unaligned_le32(0, payload + sizeof(__le32) + sizeof(__le64));
-	ret = t2sep_aks_digest(sep->ool_in, T2SEP_AKS_CAP_REQUEST_SIZE);
+	ret = t2sep_aks_digest(sep->ool_in, T2SEP_AKS_CAP_REQUEST_SIZE,
+			       T2SEP_AKS_WIRE_HEADER_SIZE);
 	if (ret)
 		return ret;
 
+	msleep(200);
 	mutex_lock(&sep->mailbox_lock);
 	ret = t2sep_ool_exchange(sep, T2SEP_AKS_ENDPOINT,
 				 T2SEP_AKS_GET_CAPABILITIES,
-				 T2SEP_AKS_CAP_REQUEST_SIZE, &reply_length);
+				 T2SEP_AKS_CAP_REQUEST_SIZE, &reply_length, &completed);
 	if (ret)
 		goto out_unlock;
-	if (reply_length < T2SEP_AKS_WIRE_HEADER_SIZE ||
-	    reply_length > T2SEP_OOL_SIZE ||
-	    get_unaligned_le32(sep->ool_out) != T2SEP_AKS_HEADER_SIZE ||
-	    get_unaligned_le32(sep->ool_out + sizeof(__le32) + 0x10) !=
-	    T2SEP_AKS_HEADER_VERSION) {
+	if (reply_length < T2SEP_AKS_WIRE_HEADER_SIZE) {
+		ret = -EPROTO;
+		goto out_unlock;
+	}
+	payload_offset = t2sep_aks_capability_payload_offset(
+		get_unaligned_le32(sep->ool_out),
+		get_unaligned_le32(sep->ool_out + sizeof(__le32) + 0x10),
+		reply_length);
+	if (!payload_offset) {
 		ret = -EPROTO;
 		goto out_unlock;
 	}
@@ -694,7 +783,7 @@ static int t2sep_probe_capabilities(struct t2sep_device *sep)
 	memcpy(expected_digest, sep->ool_out + sizeof(__le32),
 	       sizeof(expected_digest));
 	memset(sep->ool_out + sizeof(__le32), 0, sizeof(expected_digest));
-	ret = t2sep_aks_digest(sep->ool_out, reply_length);
+	ret = t2sep_aks_digest(sep->ool_out, reply_length, payload_offset);
 	if (!ret && memcmp(expected_digest, sep->ool_out + sizeof(__le32),
 			   sizeof(expected_digest)))
 		ret = -EBADMSG;
@@ -702,11 +791,7 @@ static int t2sep_probe_capabilities(struct t2sep_device *sep)
 	if (ret)
 		goto out_unlock;
 
-	if (reply_length < T2SEP_AKS_CAP_REQUEST_SIZE) {
-		ret = -EPROTO;
-		goto out_unlock;
-	}
-	payload = sep->ool_out + T2SEP_AKS_WIRE_HEADER_SIZE;
+	payload = sep->ool_out + payload_offset;
 	if (get_unaligned_le32(payload)) {
 		dev_warn(&sep->pdev->dev,
 			 "AKS capability query returned status %#x\n",
@@ -723,8 +808,13 @@ static int t2sep_probe_capabilities(struct t2sep_device *sep)
 		 (unsigned long long)sep->capabilities, reply_length);
 
 out_unlock:
-	memzero_explicit(sep->ool_in, T2SEP_OOL_SIZE);
-	memzero_explicit(sep->ool_out, T2SEP_OOL_SIZE);
+	/* A missing reply leaves DMA ownership ambiguous, including for this
+	 * read-only probe. Preserve both buffers and forbid further exchanges.
+	 */
+	if (completed) {
+		memzero_explicit(sep->ool_in, T2SEP_OOL_SIZE);
+		memzero_explicit(sep->ool_out, T2SEP_OOL_SIZE);
+	}
 	mutex_unlock(&sep->mailbox_lock);
 	return ret;
 }
@@ -845,6 +935,7 @@ static long t2sep_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		container_of(file->private_data, struct t2sep_device, miscdev);
 	struct t2sep_exchange ex;
 	u16 reply_length;
+	bool submitted = false, completed = false;
 	int ret;
 
 	if (cmd != T2SEP_IOC_EXCHANGE)
@@ -861,6 +952,10 @@ static long t2sep_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return -ENXIO;
 
 	mutex_lock(&sep->mailbox_lock);
+	if (sep->ool_exchange_failed) {
+		mutex_unlock(&sep->mailbox_lock);
+		return -EIO;
+	}
 	memset(sep->ool_in, 0, T2SEP_OOL_SIZE);
 	if (copy_from_user(sep->ool_in, (void __user *)(uintptr_t)ex.request,
 			   ex.request_length)) {
@@ -868,8 +963,9 @@ static long t2sep_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		goto out_unlock;
 	}
 	memset(sep->ool_out, 0, T2SEP_OOL_SIZE);
+	submitted = true;
 	ret = t2sep_ool_exchange(sep, ex.endpoint, ex.operation,
-				 ex.request_length, &reply_length);
+				 ex.request_length, &reply_length, &completed);
 	if (ret)
 		goto out_unlock;
 	if (reply_length > T2SEP_OOL_SIZE) {
@@ -889,6 +985,13 @@ static long t2sep_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	}
 	ret = 0;
 out_unlock:
+	/* Once SEP completed, neither DMA buffer should retain a password.
+	 * On timeout the request may still be live; do not alter its storage.
+	 */
+	if (!submitted || completed) {
+		memzero_explicit(sep->ool_in, T2SEP_OOL_SIZE);
+		memzero_explicit(sep->ool_out, T2SEP_OOL_SIZE);
+	}
 	mutex_unlock(&sep->mailbox_lock);
 	if (ret)
 		return ret;
@@ -907,6 +1010,23 @@ static int t2sep_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	struct t2sep_device *sep;
 	int ret;
 
+	/* The earlier SEPD/MDMA panic is not explained by the source corrections.
+	 * Keep every legacy experiment prohibited. A separately approved manual
+	 * trial must request exactly NOP/OOL/initial capabilities, with no IOP
+	 * startup, reset, testing or discovery operation. This opt-in does not
+	 * establish ownership recovery or a safe cross-OS DMA handoff.
+	 */
+	if (manual_unlock_trial) {
+		if (!register_ool || !probe_capabilities || start_sep ||
+		    probe_testing || probe_control || discovery_window_ms)
+			return dev_err_probe(&pdev->dev, -EINVAL,
+					     "manual trial requires only OOL and initial capabilities\n");
+	} else if (register_ool || probe_capabilities || start_sep ||
+		   probe_testing || probe_control || discovery_window_ms) {
+		return dev_err_probe(&pdev->dev, -EPERM,
+				     "SEP hardware probes disabled after reported SEPD/MDMA panic\n");
+	}
+
 	if (discovery_window_ms > T2SEP_DISCOVERY_MAX_MS)
 		return dev_err_probe(&pdev->dev, -EINVAL,
 				     "discovery_window_ms exceeds 60000\n");
@@ -922,9 +1042,6 @@ static int t2sep_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	     probe_testing))
 		return dev_err_probe(&pdev->dev, -EINVAL,
 				     "control NOP cannot be combined with another probe\n");
-	if (start_sep && !discovery_window_ms && !probe_testing && !probe_control)
-		return dev_err_probe(&pdev->dev, -EINVAL,
-				     "start_sep requires discovery or the testing query\n");
 
 	if (pci_resource_len(pdev, T2SEP_MAILBOX_BAR) < T2SEP_MAILBOX_MIN_SIZE)
 		return dev_err_probe(&pdev->dev, -ENODEV,
@@ -1007,26 +1124,37 @@ static int t2sep_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		ret = t2sep_register_ool(sep);
 		if (ret)
 			goto err_remove_group;
+		if (!sep->ool_in_registered || !sep->ool_out_registered)
+			return 0;
+		if (probe_capabilities) {
+			if (ool_endpoint != T2SEP_AKS_ENDPOINT) {
+				dev_warn(&pdev->dev,
+					 "probe_capabilities is an AKS (endpoint 7) query; ignoring it for endpoint %u\n",
+					 ool_endpoint);
+			} else {
+				ret = t2sep_probe_capabilities(sep);
+				if (ret) {
+					dev_warn(&pdev->dev,
+						 "AKS negotiation failed: %d; exchange device disabled until reboot\n",
+						 ret);
+					return 0;
+				}
+			}
+		}
+
 		sep->miscdev.minor = MISC_DYNAMIC_MINOR;
 		sep->miscdev.name = "t2sep";
 		sep->miscdev.fops = &t2sep_fops;
 		sep->miscdev.mode = 0600;
 		ret = misc_register(&sep->miscdev);
-		if (ret)
-			goto err_remove_group;
-		sep->miscdev_registered = true;
-		if (probe_capabilities && ool_endpoint != T2SEP_AKS_ENDPOINT) {
-			dev_warn(&pdev->dev,
-				 "probe_capabilities is an AKS (endpoint 7) query; ignoring it for endpoint %u\n",
-				 ool_endpoint);
-		} else if (probe_capabilities && sep->ool_in_registered &&
-			   sep->ool_out_registered) {
-			ret = t2sep_probe_capabilities(sep);
-			if (ret)
-				dev_warn(&pdev->dev,
-					 "read-only AKS capability query failed: %d\n",
-					 ret);
+		if (ret) {
+			/* Registered DMA pins this transport. Never unwind its PCI
+			 * mapping while SEP may still access that memory.
+			 */
+			dev_warn(&pdev->dev, "exchange device unavailable: %d\n", ret);
+			return 0;
 		}
+		sep->miscdev_registered = true;
 	} else if (probe_capabilities) {
 		dev_warn(&pdev->dev,
 			 "probe_capabilities requires register_ool=1\n");
@@ -1053,6 +1181,7 @@ static void t2sep_remove(struct pci_dev *pdev)
 		misc_deregister(&sep->miscdev);
 	sysfs_remove_group(&pdev->dev.kobj, &t2sep_attr_group);
 	if (sep->ool_dma_retained) {
+		pci_clear_master(pdev);
 		dev_warn(&pdev->dev,
 			 "SEP still owns OOL DMA buffers; refusing unsafe cleanup\n");
 		return;
@@ -1071,11 +1200,17 @@ static const struct pci_device_id t2sep_ids[] = {
 /* No MODULE_DEVICE_TABLE: the driver must not autoload onto the SEP while it
  * has no consumer. Load it by hand for SEP work. */
 
+static void t2sep_shutdown(struct pci_dev *pdev)
+{
+	pci_clear_master(pdev);
+}
+
 static struct pci_driver t2sep_driver = {
 	.name = "t2sep",
 	.id_table = t2sep_ids,
 	.probe = t2sep_probe,
 	.remove = t2sep_remove,
+	.shutdown = t2sep_shutdown,
 	.driver = {
 		.suppress_bind_attrs = true,
 	},

@@ -103,7 +103,20 @@ fn main() -> Result<()> {
             match Session::open(None, None) {
                 Ok(mut opened) => {
                     log("BiometricKit session open");
-                    (user_id, identities) = find_fingers(&mut opened, user_id);
+                    if user_id != 0 {
+                        let locked = match opened.sks_lock_state(user_id) {
+                            Ok(state) if !t2_biometrickit::is_keybag_unlocked(state) => {
+                                log(&format!("SEP keybag for uid {user_id} is locked (state {state:#010x}); finger search deferred until unlocked"));
+                                true
+                            }
+                            _ => false,
+                        };
+                        if !locked {
+                            (user_id, identities) = find_fingers(&mut opened, user_id);
+                        }
+                    } else {
+                        (user_id, identities) = find_fingers(&mut opened, user_id);
+                    }
                     session = Some(opened);
                 }
                 Err(error) => {
@@ -131,6 +144,10 @@ fn main() -> Result<()> {
         // fprintd-enroll, which opens the device itself, so it must run
         // independently of an incoming authentication rather than behind it.
         if bind_pending {
+            if fprint::device_is_open(&config.socket) {
+                sleep(IDLE_POLL);
+                continue;
+            }
             if let Some(user) = &config.bind_user {
                 bind_pending = !bind_missing(&config, user, &identities);
             } else {
@@ -163,6 +180,20 @@ fn main() -> Result<()> {
         log("fprintd is asking for a finger");
         prompt.set(State::Waiting);
 
+        if user_id != 0 {
+            if let Some(session_ref) = session.as_mut() {
+                if let Ok(state) = session_ref.sks_lock_state(user_id) {
+                    if !t2_biometrickit::is_keybag_unlocked(state) {
+                        log(&format!("SEP keybag for uid {user_id} is locked (state {state:#010x}); password authentication required"));
+                        prompt.set(State::Failed);
+                        fprint::report_failure(&config.socket);
+                        sleep(SETTLE);
+                        continue;
+                    }
+                }
+            }
+        }
+
         // The SEP reports an empty inventory while its biometric keybag is
         // still locked (no password has unlocked it since the T2 last
         // powered on). That can clear without the bridge restarting, so an
@@ -170,6 +201,9 @@ fn main() -> Result<()> {
         // for the life of the session.
         if identities.is_empty() {
             (user_id, identities) = find_fingers(session.as_mut().unwrap(), user_id);
+            if !identities.is_empty() {
+                bind_pending = true;
+            }
         }
 
         // One touch is enough: the finger is already enrolled in the SEP.
@@ -249,7 +283,12 @@ fn bind_missing(config: &Config, user: &str, identities: &[Identity]) -> bool {
             break;
         };
         log(&format!("binding finger {slot} to {user} as {label}"));
-        let mut child = match std::process::Command::new("fprintd-enroll")
+        let enroll_cmd = if std::path::Path::new("/run/current-system/sw/bin/fprintd-enroll").exists() {
+            "/run/current-system/sw/bin/fprintd-enroll"
+        } else {
+            "fprintd-enroll"
+        };
+        let mut child = match std::process::Command::new(enroll_cmd)
             .arg("-f")
             .arg(label)
             .arg(user)
@@ -349,6 +388,7 @@ fn serve(
             Ok(event) => event,
             Err(error) => {
                 verifying.store(false, Ordering::Release);
+                let _ = session.cancel();
                 return Err(error.into());
             }
         };
